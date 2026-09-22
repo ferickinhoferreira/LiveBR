@@ -1,5 +1,6 @@
 import { app, BrowserWindow, desktopCapturer, ipcMain, session } from "electron";
 import { autoUpdater } from "electron-updater";
+import * as fs from "fs";
 import * as path from "path";
 import { startSignalingServer, EmbeddedServer } from "./signaling-server";
 import { startTunnel, Tunnel } from "./tunnel";
@@ -178,6 +179,57 @@ app.whenReady().then(() => {
   ipcMain.on("open-volume-mixer", () => {
     const { exec } = require("child_process");
     exec("sndvol.exe");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Volume por aplicativo (igual ao Go Live): lista apps abertos e muta/permite.
+  // Usa o nircmd empacotado no app (WASAPI por processo).
+  // ---------------------------------------------------------------------------
+  function nircmdPath(): string {
+    const candidates = [
+      path.join(process.resourcesPath ?? "", "nircmd.exe"),
+      path.join(__dirname, "..", "..", "resources", "nircmd.exe"),
+    ];
+    for (const c of candidates) {
+      try {
+        if (fs.existsSync(c)) return c;
+      } catch {
+        /* ignora */
+      }
+    }
+    return "nircmd";
+  }
+
+  ipcMain.handle("audio:list-apps", async (): Promise<{ name: string }[]> => {
+    return new Promise((resolve) => {
+      const { exec } = require("child_process");
+      // Processos com janela (são os que normalmente têm áudio).
+      exec(
+        'powershell -NoProfile -Command "Get-Process | Where-Object { $_.MainWindowTitle -ne \'\' } | Group-Object ProcessName | ForEach-Object { $_.Name } | ConvertTo-Json -Compress"',
+        { timeout: 10000 },
+        (err: unknown, stdout: string) => {
+          try {
+            const raw = JSON.parse(stdout || "[]");
+            resolve(Array.isArray(raw) ? raw.map((n: string) => ({ name: n })) : [{ name: String(raw) }]);
+          } catch {
+            resolve([]);
+          }
+        }
+      );
+    });
+  });
+
+  ipcMain.on("audio:set-app-volume", (_e, app: string, volume: number) => {
+    const { exec } = require("child_process");
+    const clamped = Math.max(0, Math.min(1, volume));
+    exec(`"${nircmdPath()}" setappvolume "${app}" ${clamped}`);
+  });
+
+  ipcMain.on("audio:restore-all", (_e, apps: string[]) => {
+    const { exec } = require("child_process");
+    for (const app of apps) {
+      exec(`"${nircmdPath()}" setappvolume "${app}" 1`);
+    }
   });
 
   // Auto-update: o renderer pede para reiniciar e aplicar.

@@ -701,6 +701,24 @@ input[type="range"]::-webkit-slider-thumb {
 
 .badge-q { font-family: Consolas, monospace; }
 
+/* ---------------- Lista de apps com áudio (excluir do som) ---------------- */
+.app-list {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px;
+  background: var(--bg-input);
+  border-radius: 8px;
+  padding: 6px;
+  margin: 6px 0;
+}
+.app-list .radio-row { padding: 4px 6px; }
+.app-list .radio-row span {
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+.app-audio-list h5 { margin-bottom: 4px; }
+.app-audio-list .btn { margin-top: 4px; }
+
 /* Medidor de microfone */
 .meter-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
 .meter { flex: 1; height: 10px; background: var(--bg-input); border-radius: 5px; overflow: hidden; }

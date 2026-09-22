@@ -233,6 +233,17 @@
               aplicativo (Process Loopback, igual ao Go Live do Discord).
             </p>
             <button id="open-mixer" class="btn small-btn">🎚️ Abrir mixer de volume do Windows</button>
+
+            <!-- Lista de apps com áudio (desmarque para excluir o som dele) -->
+            <div class="app-audio-list">
+              <h5>Excluir apps do som</h5>
+              <p class="hint">
+                Desmarque um app para o som dele <strong>não entrar na transmissão</strong>.
+                <em>Obs.: o app fica mudo para você também até você marcar de volta.</em>
+              </p>
+              <div id="app-audio-list" class="app-list"></div>
+              <button id="app-audio-refresh" class="btn small-btn">🔄 Atualizar lista</button>
+            </div>
           </div>
         </div>
 

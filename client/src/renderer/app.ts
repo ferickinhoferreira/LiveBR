@@ -28,6 +28,9 @@ declare const livebr: {
   checkForUpdates: () => Promise<unknown>;
   installUpdate: () => void;
   openVolumeMixer: () => void;
+  listAudioApps: () => Promise<{ name: string }[]>;
+  setAppVolume: (app: string, volume: number) => void;
+  restoreAllAppVolumes: (apps: string[]) => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -1168,6 +1171,79 @@ function closeProfilePopover(): void {
   document.getElementById("profile-pop")?.remove();
 }
 
+// -------------------- Volume por app (excluir apps do som) --------------------
+
+let excludedApps: string[] = (() => {
+  try {
+    return JSON.parse(localStorage.getItem("livebrExcludedApps") ?? "[]");
+  } catch {
+    return [];
+  }
+})();
+
+function saveExcludedApps(): void {
+  localStorage.setItem("livebrExcludedApps", JSON.stringify(excludedApps));
+}
+
+async function renderAppAudioList(): Promise<void> {
+  const list = $("#app-audio-list");
+  list.innerHTML = '<div class="hint">Carregando apps…</div>';
+
+  let apps: { name: string }[] = [];
+  try {
+    apps = await livebr.listAudioApps();
+  } catch {
+    list.innerHTML = '<div class="hint">Não foi possível listar os apps.</div>';
+    return;
+  }
+
+  list.innerHTML = "";
+  if (apps.length === 0) {
+    list.innerHTML = '<div class="hint">Nenhum app aberto com janela.</div>';
+    return;
+  }
+
+  for (const app of apps) {
+    const row = document.createElement("label");
+    row.className = "radio-row";
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = !excludedApps.includes(app.name);
+    cb.onchange = () => {
+      if (cb.checked) {
+        // Marcado: app pode transmitir (restaura volume).
+        excludedApps = excludedApps.filter((a) => a !== app.name);
+        livebr.setAppVolume(app.name, 1);
+      } else {
+        excludedApps.push(app.name);
+        // Muta o app para o sistema todo — então não entra na transmissão.
+        livebr.setAppVolume(app.name, 0);
+      }
+      saveExcluded();
+    };
+
+    const span = document.createElement("span");
+    span.textContent = app.name;
+
+    row.append(cb, span);
+    list.appendChild(row);
+  }
+}
+
+function saveExcluded(): void {
+  localStorage.setItem("livebrExcludedApps", JSON.stringify(excludedApps));
+}
+
+/** Restaura os volumes dos apps que estavam excluídos (ao sair da sala). */
+function restoreExcludedApps(): void {
+  if (excludedApps.length > 0) {
+    livebr.restoreAllAppVolumes(excludedApps);
+    excludedApps = [];
+    saveExcluded();
+  }
+}
+
 // -------------------- Perfil via data channel + Amigos --------------------
 
 interface ProfileMsg {
@@ -1884,6 +1960,7 @@ function openShareModal(): void {
   syncShareInputs();
   showModal("share-modal");
   void loadSources("screen");
+  void renderAppAudioList();
 }
 
 function syncShareInputs(): void {
@@ -1977,6 +2054,11 @@ async function startShare(): Promise<void> {
       }
       applySenderPrefs(ctx.pc);
     }
+  }
+
+  // Aplica os volumes dos apps excluídos (muta os apps desmarcados).
+  for (const app of excludedApps) {
+    livebr.setAppVolume(app, 0);
   }
 
   $("#share-btn").classList.add("hidden");
@@ -2541,6 +2623,9 @@ function leave(): void {
     void livebr.stopRoom().catch(() => undefined);
   }
 
+  // Restaura os volumes dos apps que foram excluídos do som.
+  restoreExcludedApps();
+
   $("#room").classList.add("hidden");
   $("#lobby").classList.remove("hidden");
   $("#lobby-status").textContent = "";
@@ -2777,6 +2862,9 @@ $("#watch-add").addEventListener("click", () => {
 
 // --- Abrir mixer de volume do Windows (para ignorar áudio de um app) ---
 $("#open-mixer").addEventListener("click", () => livebr.openVolumeMixer());
+
+// --- Lista de apps com áudio (excluir do som da transmissão) ---
+$("#app-audio-refresh").addEventListener("click", () => void renderAppAudioList());
 
 // --- Seleção de dispositivos ---
 $("#opt-mic-device").addEventListener("change", async () => {

@@ -50,6 +50,10 @@
       {
         "from": "resources/cloudflared.exe",
         "to": "cloudflared.exe"
+      },
+      {
+        "from": "resources/nircmd.exe",
+        "to": "nircmd.exe"
       }
     ],
     "win": {

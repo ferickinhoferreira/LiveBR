@@ -34,6 +34,13 @@ contextBridge.exposeInMainWorld("livebr", {
   /** Abre o mixer de volume do Windows. */
   openVolumeMixer: (): void => ipcRenderer.send("open-volume-mixer"),
 
+  /** Volume por app: lista de apps abertos e controle de volume individual. */
+  listAudioApps: (): Promise<{ name: string }[]> => ipcRenderer.invoke("audio:list-apps"),
+  setAppVolume: (app: string, volume: number): void =>
+    ipcRenderer.send("audio:set-app-volume", app, volume),
+  restoreAllAppVolumes: (apps: string[]): void =>
+    ipcRenderer.send("audio:restore-all", apps),
+
   /** Auto-update: notificações e controle. */
   onUpdateAvailable: (cb: (version: string) => void): void => {
     ipcRenderer.on("update:available", (_e, v) => cb(v));

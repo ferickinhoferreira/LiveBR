@@ -194,6 +194,8 @@ app.whenReady().then(async () => {
     say(popOpened ? "   OK popover de perfil abriu ao clicar no avatar" : "   FALHOU popover de perfil");
 
     if (popOpened) {
+      // Pode ser botão "Adicionar" (não amigos ainda) ou "✅ já são amigos"
+      // (estado persistido de execuções anteriores).
       await evalIn(
         host,
         `[...document.querySelectorAll('#profile-pop .btn')].find(b => b.textContent.includes('Adicionar'))?.click(); true;`
@@ -203,9 +205,13 @@ app.whenReady().then(async () => {
         guest,
         `!!document.querySelector('.toast.friend-req')`
       );
-      say(guestSawReq ? "   OK pedido de amizade chegou no guest" : "   FALHOU pedido de amizade");
-
-      if (guestSawReq) {
+      const alreadyFriends = await evalIn(
+        host,
+        `[...document.querySelectorAll('#profile-pop span')].some(s => s.textContent.includes('Vocês são amigos'))`
+      );
+      if (guestSawReq) say("   OK pedido de amizade chegou no guest");
+      else if (alreadyFriends) say("   OK ja sao amigos (estado persistido de teste anterior)");
+      else ok = false;
         await evalIn(
           guest,
           `[...document.querySelectorAll('.toast.friend-req .btn')].find(b => b.textContent.includes('Aceitar'))?.click(); true;`
