@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tema escuro alinhado com a UI do app (Discord-like) -->
+    <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#1E1F22</item>
+        <item name="android:statusBarColor">#1E1F22</item>
+        <item name="android:navigationBarColor">#1E1F22</item>
+        <item name="android:colorAccent">#5865F2</item>
+    </style>
+</resources>

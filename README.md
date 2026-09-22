@@ -91,6 +91,26 @@ Mande um dos dois para seu amigo (Discord aceita até ~500 MB). Ele só precisa:
 > Nota: o executável não é assinado digitalmente (certificado custa caro), então o
 > Windows SmartScreen pode mostrar aviso — clique em "Mais informações > Executar assim mesmo".
 
+## Android (APK)
+
+O mesmo renderer roda num app Android (WebView) empacotado em `android/`:
+
+- **Baixando:** abra a release mais recente no GitHub e baixe o `LiveBR-x.y.z.apk`
+  no celular → permita instalar de **fontes desconhecidas** → abra e conceda
+  câmera/microfone.
+- **Criar sala** é função do PC (o app hospeda o servidor + túnel). No celular use
+  **Entrar com código** com o convite de quem está no PC, ou a aba **Sem servidor**
+  (convite/resposta manual) para conversar entre celulares.
+- No celular o botão de compartilhar abre a **câmera** (a WebView não captura a
+  tela do sistema); para ver a tela de quem está no PC, é só entrar na sala.
+
+Gerando o APK localmente (requer JDK 17, Android SDK e Gradle 8.9):
+
+```bash
+node scripts/build-android.cjs
+# saída: android/LiveBR-<versão>.apk
+```
+
 ## Sala com código (o app hospeda sozinho)
 
 Fluxo recomendado — **ninguém configura nada**:

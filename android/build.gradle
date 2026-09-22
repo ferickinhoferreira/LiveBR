@@ -1,0 +1,4 @@
+// Plugin Android (AGP 8.7.x exige Gradle 8.9+ e JDK 17).
+plugins {
+    id 'com.android.application' version '8.7.3' apply false
+}

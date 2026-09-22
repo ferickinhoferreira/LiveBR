@@ -1,0 +1,58 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Versão vem de scripts/build-android.cjs (-PappVersionName / -PappVersionCode),
+// alinhada com client/package.json. Defaults apenas para `gradle` solto.
+def appVersionName = (project.findProperty("appVersionName") ?: "0.4.1") as String
+def appVersionCode = (project.findProperty("appVersionCode") ?: "401") as Integer
+
+android {
+    namespace 'br.live.livebr'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "br.live.livebr"
+        minSdk 24
+        targetSdk 34
+        versionCode appVersionCode
+        versionName appVersionName
+    }
+
+    // Assinatura de release: android/keystore.properties (gitignored).
+    // Sem ele o build continua funcionando, só sai app-release-unsigned.apk.
+    signingConfigs {
+        release {
+            def props = new Properties()
+            def propsFile = rootProject.file("keystore.properties")
+            if (propsFile.exists()) {
+                propsFile.withInputStream { props.load(it) }
+            }
+            def ks = rootProject.file(props.getProperty("storeFile", "keystore/livebr.keystore"))
+            if (ks.exists()) {
+                storeFile ks
+                storePassword props.getProperty("storePassword", "")
+                keyAlias props.getProperty("keyAlias", "livebr")
+                keyPassword props.getProperty("keyPassword", "")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            if (signingConfigs.release.storeFile != null) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+}

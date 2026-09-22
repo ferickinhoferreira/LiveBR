@@ -119,6 +119,13 @@ async function main() {
   log("▶ gerando instalador…");
   execSync("npm run installer", { cwd: CLIENT, stdio: "inherit" });
 
+  // 2b) APK Android (usa o renderer já buildado; só copia + gradle)
+  log("▶ gerando APK Android…");
+  execSync(`node "${path.join(ROOT, "scripts", "build-android.cjs")}" --skip-build`, {
+    cwd: ROOT,
+    stdio: "inherit",
+  });
+
   // 3) commit + tag + push
   log("▶ commit + tag + push…");
   const pushUrl = `https://${OWNER}:${TOKEN}@github.com/${OWNER}/${REPO}.git`;
@@ -133,7 +140,7 @@ async function main() {
     tag_name: `v${version}`,
     target_commitish: "main",
     name: `LiveBR ${version}`,
-    body: `## LiveBR ${version}\n\nCompartilhamento de tela P2P estilo Discord Go Live.\n\n**Download:** \`LiveBR-${version}-Setup.exe\`\n\nQuem já tem instalado recebe a atualização automaticamente.`,
+    body: `## LiveBR ${version}\n\nCompartilhamento de tela P2P estilo Discord Go Live.\n\n**Windows:** \`LiveBR-${version}-Setup.exe\` (ou \`LiveBR-Portable.exe\`)\n\n**Android:** \`LiveBR-${version}.apk\` — baixe no celular, permita instalar de fontes desconhecidas e use o código da sala criada no PC (ou o modo Sem servidor).\n\nQuem já tem instalado recebe a atualização automaticamente.`,
     draft: false,
     prerelease: false,
   });

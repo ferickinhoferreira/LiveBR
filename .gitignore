@@ -7,3 +7,13 @@ target/
 client/resources/cloudflared.exe
 *.log
 target/
+
+# Android (APK)
+android/local.properties
+android/keystore/
+android/keystore.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/*.apk
+android/app/src/main/assets/www/
