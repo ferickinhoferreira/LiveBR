@@ -108,6 +108,20 @@ direto entre os PCs (P2P).
 > Validado por teste automatizado: `npm run test:host` (dois apps reais, host
 > criando sala com túnel e convidado entrando só com o código).
 
+## Funcionalidades da versão 0.3.0
+
+- 💬 **Chat na sala** (P2P via data channel, sem servidor de mensagens)
+- 👁 **Parar de assistir** a transmissão de alguém (e voltar quando quiser)
+- ✕ **Fechar o tile** de quem parou de transmitir (some da grade automaticamente)
+- 📷 **Compartilhar câmera** (aba Câmera no modal de compartilhar)
+- 🎬 **Assistir vídeo juntos**: cole um link do **YouTube**, **Twitch** ou um
+  **.mp4/.webm** — aparece sincronizado para todo mundo (play/pause/seek)
+- 🎧 **Seleção de dispositivos**: escolha o microfone (headset) e o alto-falante
+  de saída nos Ajustes — como no Discord
+- 👑 **Coroa do host** em todos os tiles e na lista de participantes
+- 🗣️ **Indicador de quem está falando** (borda verde no tile)
+- 📊 **Latência/bitrate** em tempo real por pessoa
+
 ## Modo "Sem servidor" (sem internet/túnel)
 
 Aba **Sem servidor** no lobby: troca manual de convite/resposta (SDP por chat).
