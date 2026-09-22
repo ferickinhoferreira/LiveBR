@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld("livebr", {
   /** Encerra a sala hospedada (servidor + túnel). */
   stopRoom: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("room:stop"),
 
+  /** Abre o mixer de volume do Windows. */
+  openVolumeMixer: (): void => ipcRenderer.send("open-volume-mixer"),
+
   /** Auto-update: notificações e controle. */
   onUpdateAvailable: (cb: (version: string) => void): void => {
     ipcRenderer.on("update:available", (_e, v) => cb(v));

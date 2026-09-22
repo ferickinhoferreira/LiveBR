@@ -23,6 +23,7 @@ declare const livebr: {
   onUpdateDownloaded: (cb: (version: string) => void) => void;
   checkForUpdates: () => Promise<unknown>;
   installUpdate: () => void;
+  openVolumeMixer: () => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -40,6 +41,8 @@ interface Prefs {
   autoGainControl: boolean;
   sensitivity: number;
   hiQuality: boolean;
+  micDeviceId: string;
+  speakerDeviceId: string;
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -53,6 +56,8 @@ const DEFAULT_PREFS: Prefs = {
   autoGainControl: true,
   sensitivity: 50,
   hiQuality: true,
+  micDeviceId: "",
+  speakerDeviceId: "",
 };
 
 function loadPrefs(): Prefs {
@@ -115,6 +120,8 @@ interface PeerCtx {
   isSharing: boolean;
   /** Quem criou a sala. */
   isHost: boolean;
+  /** Data channel para chat e watch party. */
+  dc: RTCDataChannel | null;
 }
 const peers = new Map<string, PeerCtx>();
 
@@ -274,6 +281,23 @@ function createTile(id: string, label: string): TileRefs {
   }
 
   actions.append(zoomBtn, fullBtn);
+
+  // Parar/voltar a assistir (só para transmissões de outras pessoas).
+  if (id !== "me" && id !== "me-cam" && id !== watchTileId) {
+    const watchBtn = document.createElement("button");
+    watchBtn.textContent = "👁";
+    watchBtn.title = "Parar de assistir / voltar a assistir";
+    watchBtn.onclick = () => toggleWatchPeer(id);
+    actions.prepend(watchBtn);
+
+    // Fechar o tile (esconder da grade até voltar a transmitir).
+    const hideBtn = document.createElement("button");
+    hideBtn.textContent = "✕";
+    hideBtn.title = "Fechar transmissão de " + label;
+    hideBtn.onclick = () => removeTile(id);
+    actions.appendChild(hideBtn);
+  }
+
   if (volWrap) actions.appendChild(volWrap);
 
   root.append(video, avatar, bar, actions);
@@ -615,6 +639,397 @@ function handleServerMessage(msg: any): void {
 }
 
 // ---------------------------------------------------------------------------
+// Chat + Parar de assistir + estado dos peers
+// ---------------------------------------------------------------------------
+
+interface ChatMsg {
+  kind: "chat";
+  from: string;
+  name: string;
+  text: string;
+  ts: number;
+}
+interface PeerStateMsg {
+  kind: "state";
+  watching?: boolean;
+  sharing?: boolean;
+  from: string;
+}
+type DataMsg = ChatMsg | WatchMsg | PeerStateMsg;
+
+function wireDataChannel(peerId: string, dc: RTCDataChannel): void {
+  dc.onopen = () => console.log(`dc ${peerId} aberto`);
+  dc.onmessage = (e) => {
+    let msg: DataMsg;
+    try {
+      msg = JSON.parse(e.data);
+    } catch {
+      return;
+    }
+    if (msg.kind === "chat") addChatMessage(msg as ChatMsg, false);
+    else if (msg.kind === "watch") handleWatchMessage(msg as WatchMsg);
+    else if (msg.kind === "state") handlePeerState(msg as PeerStateMsg);
+  };
+}
+
+function sendData(msg: DataMsg, onlyPeer?: string): void {
+  const text = JSON.stringify(msg);
+  for (const [id, ctx] of peers) {
+    if (onlyPeer && id !== onlyPeer) continue;
+    if (ctx.dc?.readyState === "open") ctx.dc.send(text);
+  }
+}
+
+// -------------------- Chat --------------------
+
+function addChatMessage(msg: ChatMsg, mine: boolean): void {
+  const box = $("#chat-messages");
+  const row = document.createElement("div");
+  row.className = "chat-msg";
+  if (mine) row.dataset.mine = "1";
+
+  const body = document.createElement("div");
+  body.className = "chat-body";
+
+  const meta = document.createElement("div");
+  meta.className = "chat-meta";
+  const name = document.createElement("span");
+  name.className = "chat-name";
+  name.textContent = msg.name;
+  name.style.color = avatarColor(msg.name);
+  const time = document.createElement("span");
+  time.className = "chat-time";
+  time.textContent = new Date(msg.ts).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  meta.append(name, time);
+
+  const text = document.createElement("div");
+  text.className = "chat-text";
+  text.textContent = msg.text;
+
+  body.append(meta, text);
+  row.appendChild(body);
+  box.appendChild(row);
+  box.scrollTop = box.scrollHeight;
+
+  if (!mine) toast(`${msg.name}: ${msg.text.slice(0, 40)}`);
+}
+
+function sendChat(): void {
+  const input = $("#chat-input") as HTMLInputElement;
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+
+  const msg: ChatMsg = { kind: "chat", from: myId || "me", name: myName, text, ts: Date.now() };
+  addChatMessage(msg, true);
+  sendData(msg);
+}
+
+// -------------------- Parar de assistir --------------------
+
+/** Set de peers que estamos assistindo (false = pausamos). */
+const watching = new Map<string, boolean>();
+
+function toggleWatchPeer(peerId: string): void {
+  const now = !watching.get(peerId);
+  watching.set(peerId, now);
+
+  const tile = tiles.get(peerId);
+  if (tile) {
+    if (now) {
+      tile.video.srcObject = peers.get(peerId)?.stream ?? null;
+      tile.root.style.opacity = "";
+      tile.avatar.style.display = "none";
+    } else {
+      tile.video.srcObject = null;
+      tile.root.style.opacity = "0.35";
+      tile.avatar.style.display = "flex";
+      tile.avatar.innerHTML = "";
+      const av = makeAvatar(peers.get(peerId)?.name ?? "?", 56);
+      const txt = document.createElement("div");
+      txt.className = "muted";
+      txt.style.marginTop = "8px";
+      txt.textContent = "Transmissão pausada por você";
+      tile.avatar.append(av, txt);
+    }
+  }
+  sendData({ kind: "state", watching: now, from: myId || "me" }, peerId);
+  renderParticipants();
+}
+
+function handlePeerState(msg: PeerStateMsg): void {
+  const ctx = peers.get(msg.from);
+  if (!ctx) return;
+
+  // O outro começou/parou de transmitir (aplica também à câmera).
+  if (typeof msg.sharing === "boolean") {
+    ctx.isSharing = msg.sharing;
+    if (!msg.sharing) {
+      // Parou de transmitir: o tile dele some da grade.
+      removeTile(msg.from);
+      toast(`${ctx.name} parou de transmitir a tela`);
+    } else {
+      toast(`${ctx.name} começou a transmitir a tela`);
+    }
+    renderParticipants();
+  }
+
+  if (typeof msg.watching === "boolean") {
+    toast(
+      msg.watching
+        ? `${ctx.name} voltou a assistir sua tela`
+        : `${ctx.name} parou de assistir sua tela`
+    );
+    renderParticipants();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Câmera
+// ---------------------------------------------------------------------------
+
+let cameraStream: MediaStream | null = null;
+
+async function shareCamera(): Promise<void> {
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 30 } },
+      audio: false,
+    });
+  } catch (err) {
+    toast("Não foi possível abrir a câmera.", "err");
+    console.error(err);
+    return;
+  }
+
+  const track = cameraStream.getVideoTracks()[0];
+  if (!track) return;
+
+  for (const ctx of peers.values()) ctx.pc.addTrack(track, cameraStream);
+
+  const refs = createTile("me-cam", `${myName} (câmera)`);
+  refs.video.srcObject = cameraStream;
+  refs.avatar.style.display = "none";
+  refs.live.style.display = "inline-block";
+  refs.live.textContent = "CÂMERA";
+
+  toast("Câmera compartilhada", "ok");
+}
+
+function stopCamera(): void {
+  for (const t of cameraStream?.getTracks() ?? []) t.stop();
+  for (const ctx of peers.values()) {
+    for (const sender of ctx.pc.getSenders()) {
+      if (sender.track && cameraStream?.getTracks().includes(sender.track)) {
+        ctx.pc.removeTrack(sender);
+      }
+    }
+  }
+  cameraStream = null;
+  removeTile("me-cam");
+  toast("Câmera desligada");
+}
+
+// ---------------------------------------------------------------------------
+// Watch party (vídeo externo: YouTube, Twitch, vídeo direto)
+// ---------------------------------------------------------------------------
+
+interface WatchMsg {
+  kind: "watch";
+  action: "add" | "play" | "pause" | "seek" | "remove";
+  url: string;
+  time?: number;
+  from: string;
+}
+
+let watchState: {
+  url: string;
+  type: "youtube" | "twitch" | "video";
+  el: HTMLVideoElement | HTMLIFrameElement | null;
+} | null = null;
+const watchTileId = "watch";
+
+function parseWatchUrl(url: string): { type: "youtube" | "twitch" | "video"; embed: string } | null {
+  const yt = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{6,})/);
+  if (yt) return { type: "youtube", embed: `https://www.youtube.com/embed/${yt[1]}?autoplay=1` };
+
+  const tw = url.match(/twitch\.tv\/(?:videos\/(\d+)|([\w]+))/);
+  if (tw) {
+    const base = "https://player.twitch.tv/?parent=" + location.hostname;
+    if (tw[1]) return { type: "twitch", embed: `${base}&video=${tw[1]}&autoplay=true` };
+    return { type: "twitch", embed: `${base}&channel=${tw[2]}&autoplay=true` };
+  }
+
+  if (/\.(mp4|webm|m3u8)(\?|$)/i.test(url)) return { type: "video", embed: url };
+  return null;
+}
+
+function addWatchTile(url: string, isOwner: boolean): void {
+  const parsed = parseWatchUrl(url);
+  if (!parsed) {
+    toast("Link não reconhecido. Use YouTube, Twitch ou um vídeo .mp4/.webm.", "err");
+    return;
+  }
+
+  removeTile(watchTileId);
+
+  const root = document.createElement("div");
+  root.className = "tile watch-tile";
+  root.id = `tile-${watchTileId}`;
+
+  let mediaEl: HTMLVideoElement | HTMLIFrameElement;
+  if (parsed.type === "video") {
+    const v = document.createElement("video");
+    v.src = parsed.embed;
+    v.autoplay = true;
+    v.controls = true;
+    v.playsInline = true;
+    mediaEl = v;
+  } else {
+    const f = document.createElement("iframe");
+    f.src = parsed.embed;
+    f.allow = "autoplay; fullscreen; picture-in-picture";
+    f.allowFullscreen = true;
+    f.style.border = "none";
+    mediaEl = f;
+  }
+
+  const bar = document.createElement("div");
+  bar.className = "watch-bar";
+  const who = document.createElement("span");
+  who.className = "muted";
+  who.textContent = isOwner ? "Você adicionou" : "Sincronizado";
+  const removeBtn = document.createElement("button");
+  removeBtn.textContent = "✕";
+  removeBtn.title = "Remover vídeo";
+  removeBtn.onclick = () => {
+    removeTile(watchTileId);
+    watchState = null;
+    sendData({ kind: "watch", action: "remove", url, from: myId || "me" });
+  };
+  bar.append(who, removeBtn);
+
+  root.append(mediaEl, bar);
+  $("#video-grid").appendChild(root);
+  $("#empty-stage").classList.add("hidden");
+
+  // Para vídeo direto (.mp4), sincroniza play/pause/seek.
+  if (parsed.type === "video") {
+    const v = mediaEl as HTMLVideoElement;
+    v.addEventListener("play", () =>
+      sendData({ kind: "watch", action: "play", url, time: v.currentTime, from: myId || "me" })
+    );
+    v.addEventListener("pause", () =>
+      sendData({ kind: "watch", action: "pause", url, time: v.currentTime, from: myId || "me" })
+    );
+    v.addEventListener("seeked", () =>
+      sendData({ kind: "watch", action: "seek", url, time: v.currentTime, from: myId || "me" })
+    );
+  }
+
+  watchState = { url, type: parsed.type, el: mediaEl };
+}
+
+function handleWatchMessage(msg: WatchMsg): void {
+  switch (msg.action) {
+    case "add":
+      addWatchTile(msg.url, false);
+      toast(`${peers.get(msg.from)?.name ?? "Alguém"} adicionou um vídeo para assistir juntos`, "ok");
+      break;
+    case "remove":
+      removeTile(watchTileId);
+      watchState = null;
+      break;
+    case "play":
+    case "pause":
+    case "seek": {
+      if (!watchState?.el || watchState.type !== "video") break;
+      const v = watchState.el as HTMLVideoElement;
+      if (msg.action === "play") v.play().catch(() => undefined);
+      else if (msg.action === "pause") v.pause();
+      if (typeof msg.time === "number" && Math.abs(v.currentTime - msg.time) > 0.8) {
+        v.currentTime = msg.time;
+      }
+      break;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Seleção de dispositivos (microfone / alto-falante)
+// ---------------------------------------------------------------------------
+
+async function listDevices(): Promise<{ mic: MediaDeviceInfo[]; speaker: MediaDeviceInfo[] }> {
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    return {
+      mic: devs.filter((d) => d.kind === "audioinput"),
+      speaker: devs.filter((d) => d.kind === "audiooutput"),
+    };
+  } catch {
+    return { mic: [], speaker: [] };
+  }
+}
+
+async function populateDevicePickers(): Promise<void> {
+  const { mic, speaker } = await listDevices();
+  const micSel = $("#opt-mic-device") as HTMLSelectElement;
+  const spkSel = $("#opt-speaker-device") as HTMLSelectElement;
+
+  micSel.innerHTML = '<option value="">Padrão do sistema</option>';
+  for (const d of mic) {
+    const o = document.createElement("option");
+    o.value = d.deviceId;
+    o.textContent = d.label || `Microfone ${micSel.length}`;
+    micSel.appendChild(o);
+  }
+
+  spkSel.innerHTML = '<option value="">Padrão do sistema</option>';
+  for (const d of speaker) {
+    const o = document.createElement("option");
+    o.value = d.deviceId;
+    o.textContent = d.label || `Alto-falante ${spkSel.length}`;
+    spkSel.appendChild(o);
+  }
+
+  micSel.value = prefs.micDeviceId ?? "";
+  spkSel.value = prefs.speakerDeviceId ?? "";
+}
+
+/** Aplica o dispositivo de saída em todos os elementos de vídeo. */
+async function applySpeaker(): Promise<void> {
+  const id = prefs.speakerDeviceId;
+  if (!id) return;
+  for (const [, t] of tiles) {
+    const v = t.video;
+    if ((v as any).setSinkId) await (v as any).setSinkId(id).catch(console.warn);
+  }
+}
+
+/** Recria o microfone com o dispositivo selecionado. */
+async function applyMicDevice(): Promise<void> {
+  const id = prefs.micDeviceId;
+  if (!id) return;
+  if (micRawStream) {
+    micRawStream.getTracks().forEach((t) => t.stop());
+    micRawStream = null;
+    micOutTrack = null;
+    await ensureMic();
+    for (const ctx of peers.values()) {
+      for (const sender of ctx.pc.getSenders()) {
+        if (sender.track?.kind === "audio") {
+          sender.replaceTrack(micOutTrack).catch(console.error);
+        }
+      }
+    }
+    toast("Microfone alterado", "ok");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Mesh WebRTC — perfect negotiation
 // ---------------------------------------------------------------------------
 
@@ -637,10 +1052,20 @@ function createPeer(peerId: string, name: string, isHost = false): PeerCtx {
     bitrate: 0,
     isSharing: false,
     isHost,
+    dc: null,
   };
   peers.set(peerId, ctx);
 
-  pc.createDataChannel("chat");
+  // Canal de dados para chat e watch party.
+  const dc = pc.createDataChannel("chat");
+  ctx.dc = dc;
+  wireDataChannel(peerId, dc);
+  pc.ondatachannel = (e) => {
+    if (e.channel.label === "chat") {
+      ctx.dc = e.channel;
+      wireDataChannel(peerId, e.channel);
+    }
+  };
 
   pc.onicecandidate = (e) => {
     if (e.candidate) relay(peerId, { description: null, candidate: e.candidate });
@@ -749,11 +1174,29 @@ function buildVideoConstraints(): MediaTrackConstraints {
   return c;
 }
 
-async function loadSources(type: "screen" | "window"): Promise<void> {
+async function loadSources(type: "screen" | "window" | "camera"): Promise<void> {
   const list = $("#source-list");
   list.innerHTML = `<div class="hint">Carregando…</div>`;
   pendingSourceId = null;
   ($("#share-confirm") as HTMLButtonElement).disabled = true;
+
+  // Aba Câmera: não lista telas, oferece compartilhar a webcam.
+  if (type === "camera") {
+    list.innerHTML = "";
+    const item = document.createElement("div");
+    item.className = "source-item";
+    item.innerHTML =
+      '<div style="font-size:42px;padding:24px 0">📷</div>' +
+      '<div class="name">Sua câmera</div>';
+    item.onclick = () => {
+      hideModal("share-modal");
+      if (cameraStream) stopCamera();
+      else void shareCamera();
+    };
+    list.appendChild(item);
+    $("#share-hint").textContent = "Clique para ligar/desligar sua câmera.";
+    return;
+  }
 
   const sources = await livebr.getDisplaySources(type);
   list.innerHTML = "";
@@ -863,6 +1306,7 @@ async function startShare(): Promise<void> {
   $("#share-btn").classList.add("hidden");
   $("#stop-share-btn").classList.remove("hidden");
   renderParticipants();
+  sendData({ kind: "state", sharing: true, from: myId || "me" });
   toast(
     `Transmitindo ${prefs.resolution === "native" ? "em resolução nativa" : prefs.resolution} @ ${prefs.fps}fps, ${prefs.bitrateMbps} Mbps`,
     "ok"
@@ -914,6 +1358,7 @@ function stopShare(): void {
   $("#share-btn").classList.remove("hidden");
   $("#stop-share-btn").classList.add("hidden");
   renderParticipants();
+  sendData({ kind: "state", sharing: false, from: myId || "me" });
   toast("Transmissão encerrada");
 }
 
@@ -927,6 +1372,7 @@ async function ensureMic(): Promise<void> {
   try {
     micRawStream = await navigator.mediaDevices.getUserMedia({
       audio: {
+        deviceId: prefs.micDeviceId ? { exact: prefs.micDeviceId } : undefined,
         noiseSuppression: prefs.noiseSuppression,
         echoCancellation: prefs.echoCancellation,
         autoGainControl: prefs.autoGainControl,
@@ -1058,6 +1504,7 @@ function openSettings(): void {
   syncSettingsInputs();
   showModal("settings-modal");
   if (micRawStream) startMicMeter();
+  void populateDevicePickers();
 }
 
 // ---------------------------------------------------------------------------
@@ -1192,6 +1639,7 @@ function createDirectPeer(isHost: boolean, peerName = "Convidado"): PeerCtx {
     bitrate: 0,
     isSharing: false,
     isHost: !isHost, // o OUTRO é o host se ele criou o convite
+    dc: null,
   };
   peers.set(DIRECT_PEER_ID, ctx);
 
@@ -1529,7 +1977,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
     tab.classList.add("active");
-    void loadSources(tab.getAttribute("data-src-type") as "screen" | "window");
+    void loadSources(tab.getAttribute("data-src-type") as "screen" | "window" | "camera");
   });
 });
 $("#opt-bitrate").addEventListener("input", (e) => {
@@ -1569,6 +2017,44 @@ document.querySelectorAll("[data-close]").forEach((btn) => {
     hideModal(id);
     if (id === "settings-modal") stopMicMeter();
   });
+});
+
+// --- Chat ---
+$("#chat-send").addEventListener("click", sendChat);
+$("#chat-input").addEventListener("keydown", (e) => {
+  if ((e as KeyboardEvent).key === "Enter") sendChat();
+});
+
+// --- Assistir vídeo juntos ---
+$("#watch-btn").addEventListener("click", () => showModal("watch-modal"));
+$("#watch-add").addEventListener("click", () => {
+  const url = ($("#watch-url") as HTMLInputElement).value.trim();
+  if (!url) return;
+  if (!parseWatchUrl(url)) {
+    toast("Link não reconhecido. Use YouTube, Twitch ou .mp4/.webm.", "err");
+    return;
+  }
+  addWatchTile(url, true);
+  sendData({ kind: "watch", action: "add", url, from: myId || "me" });
+  ($("#watch-url") as HTMLInputElement).value = "";
+  hideModal("watch-modal");
+  toast("Vídeo adicionado para todo mundo", "ok");
+});
+
+// --- Abrir mixer de volume do Windows (para ignorar áudio de um app) ---
+$("#open-mixer").addEventListener("click", () => livebr.openVolumeMixer());
+
+// --- Seleção de dispositivos ---
+$("#opt-mic-device").addEventListener("change", async () => {
+  prefs.micDeviceId = ($("#opt-mic-device") as HTMLSelectElement).value;
+  savePrefs();
+  await applyMicDevice();
+});
+$("#opt-speaker-device").addEventListener("change", async () => {
+  prefs.speakerDeviceId = ($("#opt-speaker-device") as HTMLSelectElement).value;
+  savePrefs();
+  await applySpeaker();
+  toast("Saída de áudio alterada", "ok");
 });
 
 // --- Restaura preferências ---

@@ -426,6 +426,62 @@ input[type="range"]::-webkit-slider-thumb {
 .row-buttons { display: flex; gap: 10px; margin-top: 6px; }
 .row-buttons .btn { flex: 1; }
 
+/* ---------------- Chat ---------------- */
+.chat-panel {
+  border-top: 1px solid #26272b;
+  display: flex; flex-direction: column;
+  flex: 0 0 40%;
+  min-height: 160px;
+}
+.chat-head {
+  padding: 10px 14px;
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .4px; color: var(--text-muted);
+}
+.chat-messages {
+  flex: 1; overflow-y: auto;
+  padding: 0 10px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.chat-msg { display: flex; gap: 8px; align-items: flex-start; padding: 4px; border-radius: 6px; }
+.chat-msg:hover { background: var(--bg-hover); }
+.chat-msg .chat-body { flex: 1; min-width: 0; }
+.chat-msg .chat-meta { display: flex; gap: 6px; align-items: baseline; }
+.chat-msg .chat-name { font-size: 13px; font-weight: 700; }
+.chat-msg .chat-time { font-size: 11px; color: var(--text-muted); }
+.chat-msg .chat-text { font-size: 13px; word-break: break-word; white-space: pre-wrap; }
+.chat-msg.sys .chat-text { font-size: 12px; color: var(--text-muted); font-style: italic; }
+
+.chat-input-row {
+  display: flex; gap: 8px; padding: 10px;
+  border-top: 1px solid #26272b;
+}
+.chat-input-row input {
+  flex: 1; background: var(--bg-input); border: 1px solid transparent;
+  border-radius: 6px; padding: 8px 10px; color: var(--text); font-size: 13px; outline: none;
+}
+.chat-input-row input:focus { border-color: var(--accent); }
+
+.link { color: var(--accent); cursor: pointer; text-decoration: underline; }
+.link:hover { color: var(--accent-hover); }
+
+.audio-filter { margin-top: 10px; padding-top: 10px; border-top: 1px solid #26272b; }
+.audio-filter h5 { margin-bottom: 6px; }
+
+.sidebar { display: flex; flex-direction: column; }
+.sidebar-top { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+/* Tile de vídeo externo (watch party) */
+.watch-tile video, .watch-tile iframe { width: 100%; height: 100%; }
+.watch-tile .watch-bar {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: rgba(0,0,0,.7);
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; font-size: 12px;
+}
+.watch-tile .watch-bar input[type="range"] { flex: 1; height: 4px; }
+.watch-tile .watch-bar button { background: none; color: #fff; font-size: 14px; }
+
 /* Medidor de microfone */
 .meter-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
 .meter { flex: 1; height: 10px; background: var(--bg-input); border-radius: 5px; overflow: hidden; }

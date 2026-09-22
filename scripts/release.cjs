@@ -121,10 +121,11 @@ async function main() {
 
   // 3) commit + tag + push
   log("▶ commit + tag + push…");
+  const pushUrl = `https://${OWNER}:${TOKEN}@github.com/${OWNER}/${REPO}.git`;
   execSync("git add -A", { cwd: ROOT, stdio: "inherit" });
   execSync(`git commit -m "release v${version}"`, { cwd: ROOT, stdio: "inherit" });
   execSync(`git tag v${version}`, { cwd: ROOT, stdio: "inherit" });
-  execSync(`git push origin main --tags`, { cwd: ROOT, stdio: "inherit" });
+  execSync(`git push ${pushUrl} main --tags`, { cwd: ROOT, stdio: "inherit" });
 
   // 4) release no GitHub
   log(`▶ criando release v${version}…`);

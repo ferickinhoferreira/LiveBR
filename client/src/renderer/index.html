@@ -124,11 +124,25 @@
       </main>
 
       <aside class="sidebar">
-        <h4>Participantes <span id="peer-count" class="muted">0</span></h4>
-        <ul id="peer-list"></ul>
-        <div class="sidebar-foot">
-          <div class="stat-row"><span>Latência</span><strong id="stat-rtt">–</strong></div>
-          <div class="stat-row"><span>Bitrate</span><strong id="stat-bitrate">–</strong></div>
+        <div class="sidebar-top">
+          <h4>Participantes <span id="peer-count" class="muted">0</span></h4>
+          <ul id="peer-list"></ul>
+          <div class="sidebar-foot">
+            <div class="stat-row"><span>Latência</span><strong id="stat-rtt">–</strong></div>
+            <div class="stat-row"><span>Bitrate</span><strong id="stat-bitrate">–</strong></div>
+          </div>
+        </div>
+
+        <!-- Chat -->
+        <div class="chat-panel">
+          <div class="chat-head">
+            <span>💬 Chat</span>
+          </div>
+          <div id="chat-messages" class="chat-messages"></div>
+          <div class="chat-input-row">
+            <input id="chat-input" placeholder="Conversar na sala…" maxlength="400" />
+            <button id="chat-send" class="icon-btn" title="Enviar">➤</button>
+          </div>
         </div>
       </aside>
     </div>
@@ -145,6 +159,9 @@
       </button>
       <button id="deafen-btn" class="ctrl" title="Silenciar todos os áudios">
         <span class="ico">🎧</span><span class="lbl">Áudio</span>
+      </button>
+      <button id="watch-btn" class="ctrl" title="Assistir vídeo juntos">
+        <span class="ico">🎬</span><span class="lbl">Vídeo</span>
       </button>
       <span class="spacer"></span>
       <button id="settings-btn2" class="ctrl" title="Configurações">
@@ -169,8 +186,19 @@
           <div class="tabs">
             <button class="tab active" data-src-type="screen">Telas</button>
             <button class="tab" data-src-type="window">Janelas</button>
+            <button class="tab" data-src-type="camera">Câmera</button>
           </div>
           <div id="source-list" class="source-list"></div>
+
+          <!-- Filtro de áudio -->
+          <div class="audio-filter">
+            <h5>Áudio na transmissão</h5>
+            <p class="hint">
+              O áudio do sistema captura <strong>tudo</strong> que toca no PC
+              (incluindo o Discord). Para excluir um app, abaixe o volume dele no
+              <a id="open-mixer" class="link">Mixer de volume do Windows</a>.
+            </p>
+          </div>
         </div>
 
         <div class="options-col">
@@ -226,6 +254,16 @@
         <button class="icon-btn close" data-close="settings-modal">✕</button>
       </header>
       <div class="modal-body">
+        <h5>Dispositivos de áudio</h5>
+        <label class="field">
+          <span>Microfone (entrada)</span>
+          <select id="opt-mic-device"><option value="">Padrão do sistema</option></select>
+        </label>
+        <label class="field">
+          <span>Alto-falante / fone (saída)</span>
+          <select id="opt-speaker-device"><option value="">Padrão do sistema</option></select>
+        </label>
+
         <h5>Microfone</h5>
 
         <div class="meter-row">
@@ -271,6 +309,29 @@
     <button id="update-install-btn" class="btn primary small-btn hidden">
       🔄 Reiniciar e atualizar
     </button>
+  </div>
+
+  <!-- ===================== MODAL: ADICIONAR VÍDEO ===================== -->
+  <div id="watch-modal" class="modal hidden">
+    <div class="modal-card">
+      <header class="modal-head">
+        <h3>Assistir vídeo juntos</h3>
+        <button class="icon-btn close" data-close="watch-modal">✕</button>
+      </header>
+      <div class="modal-body">
+        <p class="hint">
+          Cole um link do <strong>YouTube</strong>, <strong>Twitch</strong> ou um
+          vídeo direto (.mp4). Todo mundo na sala assiste sincronizado.
+        </p>
+        <label class="field">
+          <span>Link do vídeo</span>
+          <input id="watch-url" placeholder="https://youtube.com/watch?v=…" class="mono" />
+        </label>
+        <div class="row-buttons">
+          <button id="watch-add" class="btn primary">Adicionar para todos</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="toasts" class="toasts"></div>

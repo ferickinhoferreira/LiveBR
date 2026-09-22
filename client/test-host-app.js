@@ -190,6 +190,64 @@ app.whenReady().then(async () => {
       say(`   FALHOU coroa: host tem ${hostCrowns}, guest tem ${guestCrowns}, guest ve host=${guestSeesHost}`);
       ok = false;
     }
+
+    // --- Chat via data channel ---
+    await wait(2000);
+    await evalIn(
+      host,
+      `document.querySelector('#chat-input').value = 'ola pessoal'; document.querySelector('#chat-send').click(); true;`
+    );
+    const guestSawChat = await waitFor(
+      guest,
+      `[...document.querySelectorAll('#chat-messages .chat-text')].some(e => e.textContent.includes('ola pessoal'))`,
+      10000,
+      "chat chegou no guest"
+    );
+    if (guestSawChat) {
+      say("   OK chat funcionou (mensagem do host apareceu no guest)");
+      // Resposta do guest
+      await evalIn(
+        guest,
+        `document.querySelector('#chat-input').value = 'e ai!'; document.querySelector('#chat-send').click(); true;`
+      );
+      const hostSawReply = await waitFor(
+        host,
+        `[...document.querySelectorAll('#chat-messages .chat-text')].some(e => e.textContent.includes('e ai!'))`,
+        10000,
+        "resposta chegou no host"
+      );
+      if (hostSawReply) say("   OK chat bidirecional");
+      else ok = false;
+    } else {
+      ok = false;
+    }
+
+    // --- Watch party: link do YouTube ---
+    await evalIn(
+      host,
+      `document.querySelector('#watch-url').value = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+       document.querySelector('#watch-add').click(); true;`
+    );
+    const guestSawVideo = await waitFor(
+      guest,
+      `!!document.querySelector('#tile-watch iframe')`,
+      10000,
+      "video apareceu no guest"
+    );
+    if (guestSawVideo) say("   OK watch party (YouTube) sincronizou para o guest");
+    else ok = false;
+
+    // --- Parar de assistir ---
+    const watchBtnExists = await evalIn(
+      guest,
+      `!!document.querySelector('#tile-watch, #peer-list')`
+    );
+    void watchBtnExists;
+    const peerTileHasWatchBtn = await evalIn(
+      host,
+      `(() => { const t = document.querySelector('#tile-watch .tile-actions'); return !!t; })()`
+    );
+    say(peerTileHasWatchBtn ? "   OK controles do tile de video presentes" : "   aviso: tile sem controles");
   }
 
   console.log(ok ? "\nAPP: CRIAR SALA + ENTRAR COM CODIGO FUNCIONANDO" : "\nFALHOU");

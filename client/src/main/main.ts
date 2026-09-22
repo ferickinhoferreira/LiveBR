@@ -152,6 +152,13 @@ app.whenReady().then(() => {
     return { ok: true };
   });
 
+  // Abre o mixer de volume do Windows (para o usuário abaixar o volume de um app
+  // que ele não quer transmitir, ex.: Discord).
+  ipcMain.on("open-volume-mixer", () => {
+    const { exec } = require("child_process");
+    exec("sndvol.exe");
+  });
+
   // Auto-update: o renderer pede para reiniciar e aplicar.
   ipcMain.on("update:install", quitAndInstall);
   ipcMain.handle("update:check", () => autoUpdater.checkForUpdates());
