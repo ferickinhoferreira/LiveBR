@@ -160,12 +160,20 @@ function avatarColor(name: string): string {
 }
 
 /** Avatar circular com inicial e cor própria (para lista de participantes). */
-function makeAvatar(name: string, size = 34): HTMLElement {
+function makeAvatar(name: string, size = 34, useImage = false): HTMLElement {
   const el = document.createElement("span");
   el.className = "avatar";
   el.style.width = `${size}px`;
   el.style.height = `${size}px`;
-  el.style.background = avatarColor(name);
+  if (useImage) {
+    // Imagem de perfil padrão (guest) com a inicial por cima.
+    el.style.backgroundImage = "url(images/guest_profile.png)";
+    el.style.backgroundSize = "cover";
+    el.style.backgroundPosition = "center";
+    el.classList.add("with-img");
+  } else {
+    el.style.background = avatarColor(name);
+  }
   el.style.fontSize = `${Math.round(size * 0.44)}px`;
   el.textContent = initials(name);
   return el;
@@ -211,10 +219,10 @@ function createTile(id: string, label: string): TileRefs {
   video.playsInline = true;
   if (id === "me") video.muted = true;
 
-  // Avatar colorido (para quando não está transmitindo vídeo).
+  // Avatar grande (imagem de convidado) quando não está transmitindo vídeo.
   const avatar = document.createElement("div");
   avatar.className = "tile-avatar";
-  const circle = makeAvatar(label, 72);
+  const circle = makeAvatar(label, 84, true);
   circle.classList.add("big");
   const avName = document.createElement("div");
   avName.textContent = label;
@@ -476,6 +484,24 @@ function setConnPill(state: "ok" | "warn" | "err", text: string): void {
   pill.textContent = `● ${text}`;
 }
 
+// ---------------------------------------------------------------------------
+// Qualidade de conexão (ping): verde bom / amarelo ok / vermelho ruim
+// ---------------------------------------------------------------------------
+
+function rttClass(rtt: number | null): "net-good" | "net-ok" | "net-bad" | "net-off" {
+  if (rtt === null) return "net-off";
+  if (rtt < 80) return "net-good";
+  if (rtt < 160) return "net-ok";
+  return "net-bad";
+}
+
+/** Texto curto de qualidade de rede por peer (usado no badge do tile). */
+function netLabel(rtt: number | null, candType: string): string {
+  const tag = candType === "relay" ? "TURN" : "P2P";
+  if (rtt === null) return tag;
+  return `${tag} ${Math.round(rtt)}ms`;
+}
+
 async function pollStats(): Promise<void> {
   let totalBitrate = 0;
   let bestRtt: number | null = null;
@@ -514,17 +540,42 @@ async function pollStats(): Promise<void> {
       totalBitrate += mbps;
       if (rtt !== null && (bestRtt === null || rtt < bestRtt)) bestRtt = rtt;
 
+      // Badge do tile com cor por latência.
       const quality = tiles.get(id)?.quality;
       if (quality) {
-        const tag = candType === "relay" ? "TURN" : candType === "srflx" ? "P2P*" : "P2P";
-        quality.textContent = rtt !== null ? `${tag} ${Math.round(rtt)}ms` : tag;
+        quality.className = `badge-q ${rttClass(rtt)}`;
+        quality.textContent = netLabel(rtt, candType);
+        quality.title = rtt !== null ? `Latência: ${Math.round(rtt)} ms` : "Sem dados";
+      }
+
+      // Indicador de sinal na lista de participantes.
+      const li = document.querySelector(`#peer-list li[data-peer="${id}"]`);
+      if (li) {
+        let sig = li.querySelector(".net-signal") as HTMLElement | null;
+        if (!sig) {
+          sig = document.createElement("span");
+          sig.className = "net-signal";
+          const icons = li.querySelector(".icons");
+          icons?.prepend(sig);
+        }
+        sig.className = `net-signal ${rttClass(rtt)}`;
+        sig.textContent = rtt !== null ? `${Math.round(rtt)}ms` : "–";
+        sig.title = rtt !== null ? `Ping de ${ctx.name}: ${Math.round(rtt)} ms` : "";
       }
     } catch {
       /* peer fechando */
     }
   }
 
-  $("#stat-rtt").textContent = bestRtt !== null ? `${Math.round(bestRtt)} ms` : "–";
+  // Sidebar: latência geral com a cor do melhor peer.
+  const rttEl = $("#stat-rtt");
+  if (bestRtt !== null) {
+    rttEl.textContent = `${Math.round(bestRtt)} ms`;
+    rttEl.className = rttClass(bestRtt);
+  } else {
+    rttEl.textContent = "–";
+    rttEl.className = "";
+  }
   $("#stat-bitrate").textContent = fmtMbps(totalBitrate);
 }
 
@@ -722,25 +773,32 @@ function sendReaction(emoji: string): void {
 }
 
 function playChime(kind: "join" | "leave"): void {
+  // Usa os efeitos sonoros do app (join.mp3 / leave_ui.mp3).
+  playSound(kind === "join" ? "join" : "leave_ui");
+}
+
+// ---------------------------------------------------------------------------
+// Efeitos sonoros (mp3 do app)
+// ---------------------------------------------------------------------------
+
+const soundCache = new Map<string, HTMLAudioElement>();
+
+function playSound(
+  name: "join" | "leave_ui" | "chat_mensage" | "mic_or_headset_off" | "share_screen_on" | "share_screen_off",
+  opts?: { pitch?: number; volume?: number }
+): void {
   try {
-    const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    // Sobe (entrou) ou desce (saiu).
-    const f1 = kind === "join" ? 523 : 659;
-    const f2 = kind === "join" ? 784 : 440;
-    osc.frequency.setValueAtTime(f1, ctx.currentTime);
-    osc.frequency.setValueAtTime(f2, ctx.currentTime + 0.12);
-    gain.gain.setValueAtTime(0.08, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.4);
-    osc.onended = () => ctx.close().catch(() => undefined);
+    let base = soundCache.get(name);
+    if (!base) {
+      base = new Audio(`sounds/${name}.mp3`);
+      soundCache.set(name, base);
+    }
+    const a = base.cloneNode() as HTMLAudioElement;
+    a.volume = opts?.volume ?? 0.6;
+    if (opts?.pitch) a.playbackRate = opts.pitch;
+    void a.play().catch(() => undefined);
   } catch {
-    /* sem áudio disponível */
+    /* som indisponível */
   }
 }
 
@@ -842,6 +900,7 @@ function sendChat(): void {
   const msg: ChatMsg = { kind: "chat", from: myId || "me", name: myName, text, ts: Date.now() };
   addChatMessage(msg, true);
   sendData(msg);
+  playSound("chat_mensage", { volume: 0.3 });
 }
 
 // -------------------- Parar de assistir --------------------
@@ -1437,6 +1496,7 @@ async function startShare(): Promise<void> {
   renderParticipants();
   sendData({ kind: "state", sharing: true, from: myId || "me" });
   document.title = "🔴 LiveBR — transmitindo";
+  playSound("share_screen_on");
   toast(
     `Transmitindo ${prefs.resolution === "native" ? "em resolução nativa" : prefs.resolution} @ ${prefs.fps}fps, ${prefs.bitrateMbps} Mbps`,
     "ok"
@@ -1490,6 +1550,7 @@ function stopShare(): void {
   document.title = "LiveBR";
   renderParticipants();
   sendData({ kind: "state", sharing: false, from: myId || "me" });
+  playSound("share_screen_off");
   toast("Transmissão encerrada");
 }
 
@@ -1617,6 +1678,8 @@ function stopMicMeter(): void {
 function toggleMic(): void {
   micEnabled = !micEnabled;
   if (micGain) micGain.gain.value = micEnabled ? gainFromSensitivity() : 0;
+  // Som com tonalidade diferente: mais grave ao desligar, mais agudo ao ligar.
+  playSound("mic_or_headset_off", { pitch: micEnabled ? 1.25 : 0.8 });
   const btn = $("#mic-btn");
   btn.classList.toggle("off", !micEnabled);
   btn.querySelector(".ico")!.textContent = micEnabled ? "🎤" : "🔇";
@@ -1630,6 +1693,8 @@ function toggleDeafen(): void {
     const v = tiles.get(id)?.video;
     if (v) v.muted = deafened;
   }
+  // Mesmo som do mic, mas mais grave para "ouvido desligados".
+  playSound("mic_or_headset_off", { pitch: deafened ? 0.75 : 1.15 });
   const btn = $("#deafen-btn");
   btn.classList.toggle("off", deafened);
   btn.querySelector(".ico")!.textContent = deafened ? "🔇" : "🎧";

@@ -53,6 +53,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     title: "LiveBR",
+    icon: path.join(__dirname, "..", "..", "src", "renderer", "images", "liveBR.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,

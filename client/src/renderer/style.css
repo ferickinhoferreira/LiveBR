@@ -152,6 +152,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 #server-fields, #direct-fields { display: flex; flex-direction: column; gap: 12px; }
 .logo { display: flex; align-items: center; gap: 10px; }
 .logo-mark { color: var(--accent); font-size: 26px; line-height: 1; }
+.logo-img { height: 34px; width: auto; border-radius: 8px; object-fit: contain; }
+.logo-img.small { height: 24px; }
 .logo-text { font-size: 24px; font-weight: 800; letter-spacing: -.5px; }
 .lobby-sub { color: var(--text-muted); font-size: 13px; line-height: 1.5; margin-bottom: 6px; }
 
@@ -519,6 +521,22 @@ input[type="range"]::-webkit-slider-thumb {
   transition: transform .12s ease, background .12s ease;
 }
 .reaction-bar button:hover { background: var(--bg-hover); transform: scale(1.25); }
+
+/* Qualidade de rede (ping): verde bom / amarelo ok / vermelho ruim */
+.net-good { color: #3ddc84 !important; }
+.net-ok { color: #f0b232 !important; }
+.net-bad { color: #ff7b7b !important; }
+.net-off { color: var(--text-muted) !important; }
+
+.net-signal {
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 38px;
+  text-align: right;
+}
+
+.badge-q { font-family: Consolas, monospace; }
 
 /* Medidor de microfone */
 .meter-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }

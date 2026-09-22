@@ -32,6 +32,7 @@
   "build": {
     "appId": "br.live.livebr",
     "productName": "LiveBR",
+    "icon": "src/renderer/images/liveBR.png",
     "artifactName": "${productName}-${version}-Setup.${ext}",
     "directories": {
       "output": "installer"
