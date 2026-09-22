@@ -404,6 +404,11 @@ function setupRemoteLevel(peerId: string, stream: MediaStream): void {
       tiles.get(peerId)?.root.classList.toggle("speaking", speaking);
       const dot = document.querySelector(`#peer-list li[data-peer="${peerId}"] .dot`);
       dot?.classList.toggle("off", !speaking);
+      // Anel azul ao redor do avatar quando a pessoa fala.
+      const wrap = document.querySelector(
+        `#peer-list li[data-peer="${peerId}"] .avatar-wrap`
+      );
+      wrap?.classList.toggle("speaking", speaking);
     }, 180);
   } catch {
     /* sem áudio analisável */
@@ -604,6 +609,50 @@ function connect(): void {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Qualidade de áudio (MÚSICA): Opus estéreo + bitrate alto via SDP munging.
+// Sem isso o WebRTC negocia o Opus em modo "voz" (mono, bitrate baixo), que
+// estraga música. É o mesmo truque que o Google Meet usa.
+// ---------------------------------------------------------------------------
+
+function enhanceOpusSdp(sdp: string): string {
+  const lines = sdp.split("\r\n");
+  let opusPt: string | null = null;
+  for (const l of lines) {
+    const m = l.match(/^a=rtpmap:(\d+)\s+opus\/48000\/2/i);
+    if (m) {
+      opusPt = m[1];
+      break;
+    }
+  }
+  if (!opusPt) return sdp;
+
+  const extra = "stereo=1;sprop-stereo=1;maxaveragebitrate=256000";
+  const out: string[] = [];
+  let found = false;
+  for (const l of lines) {
+    if (l.startsWith(`a=fmtp:${opusPt}`)) {
+      const base = l.replace(`a=fmtp:${opusPt}`, "").replace(/^[\s=]+/, "");
+      const kept = base
+        .split(";")
+        .filter(
+          (p) =>
+            p.trim() &&
+            !/^(stereo|sprop-stereo|maxaveragebitrate|usedtx)\s*=/i.test(p.trim())
+        );
+      out.push(`a=fmtp:${opusPt} ${[...kept, extra].join(";")}`);
+      found = true;
+    } else {
+      out.push(l);
+    }
+  }
+  if (!found) {
+    const idx = out.findIndex((l) => l.startsWith(`a=rtpmap:${opusPt}`));
+    if (idx >= 0) out.splice(idx + 1, 0, `a=fmtp:${opusPt} ${extra}`);
+  }
+  return out.join("\r\n");
+}
+
 /** Trata cada mensagem do servidor de sinalização. */
 function handleServerMessage(msg: any): void {
   switch (msg.type) {
@@ -617,6 +666,7 @@ function handleServerMessage(msg: any): void {
     case "peer-joined":
       createPeer(msg.peer, msg.name, !!msg.isHost);
       renderParticipants();
+      playChime("join");
       toast(`${msg.name} entrou na sala`);
       break;
     case "peer-left": {
@@ -626,15 +676,71 @@ function handleServerMessage(msg: any): void {
       peers.get(msg.peer)?.analyser?.ctx.close().catch(() => undefined);
       peers.delete(msg.peer);
       removeTile(msg.peer);
+      playChime("leave");
       toast(`${name} saiu da sala`);
       break;
     }
     case "relay":
       handleRelay(msg.from, msg.payload).catch(console.error);
       break;
+    case "reaction":
+      showReaction(msg.emoji, msg.name);
+      break;
     case "error":
       toast(msg.message, "err");
       break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Feedbacks visuais: reações flutuantes, anel de fala, beeps, título
+// ---------------------------------------------------------------------------
+
+function showReaction(emoji: string, name: string): void {
+  const el = document.createElement("div");
+  el.className = "reaction";
+  el.textContent = emoji;
+  // Posição aleatória ao longo da largura (mais no centro).
+  const left = 25 + Math.random() * 50;
+  el.style.left = `${left}%`;
+  el.title = name;
+
+  const label = document.createElement("div");
+  label.className = "reaction-name";
+  label.textContent = name;
+  label.style.cssText =
+    "font-size:12px;text-align:center;margin-top:-6px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8);font-weight:600";
+  el.appendChild(label);
+
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2300);
+}
+
+function sendReaction(emoji: string): void {
+  showReaction(emoji, myName);
+  sendData({ kind: "reaction", emoji, from: myId || "me", name: myName });
+}
+
+function playChime(kind: "join" | "leave"): void {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    // Sobe (entrou) ou desce (saiu).
+    const f1 = kind === "join" ? 523 : 659;
+    const f2 = kind === "join" ? 784 : 440;
+    osc.frequency.setValueAtTime(f1, ctx.currentTime);
+    osc.frequency.setValueAtTime(f2, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+    osc.onended = () => ctx.close().catch(() => undefined);
+  } catch {
+    /* sem áudio disponível */
   }
 }
 
@@ -655,7 +761,13 @@ interface PeerStateMsg {
   sharing?: boolean;
   from: string;
 }
-type DataMsg = ChatMsg | WatchMsg | PeerStateMsg;
+interface ReactionMsg {
+  kind: "reaction";
+  emoji: string;
+  from: string;
+  name: string;
+}
+type DataMsg = ChatMsg | WatchMsg | PeerStateMsg | ReactionMsg;
 
 function wireDataChannel(peerId: string, dc: RTCDataChannel): void {
   dc.onopen = () => console.log(`dc ${peerId} aberto`);
@@ -669,6 +781,10 @@ function wireDataChannel(peerId: string, dc: RTCDataChannel): void {
     if (msg.kind === "chat") addChatMessage(msg as ChatMsg, false);
     else if (msg.kind === "watch") handleWatchMessage(msg as WatchMsg);
     else if (msg.kind === "state") handlePeerState(msg as PeerStateMsg);
+    else if (msg.kind === "reaction") {
+      const m = msg as ReactionMsg;
+      showReaction(m.emoji, m.name);
+    }
   };
 }
 
@@ -1081,7 +1197,12 @@ function createPeer(peerId: string, name: string, isHost = false): PeerCtx {
     try {
       ctx.makingOffer = true;
       await pc.setLocalDescription();
-      relay(peerId, { description: pc.localDescription });
+      // Envia o SDP com Opus em modo música (estéreo + bitrate alto).
+      const desc = {
+        type: pc.localDescription!.type,
+        sdp: enhanceOpusSdp(pc.localDescription!.sdp),
+      };
+      relay(peerId, { description: desc });
     } finally {
       ctx.makingOffer = false;
     }
@@ -1108,12 +1229,20 @@ function createPeer(peerId: string, name: string, isHost = false): PeerCtx {
 // Bitrate + preferência de degradação para os senders de vídeo.
 function applySenderPrefs(pc: RTCPeerConnection): void {
   for (const sender of pc.getSenders()) {
-    if (sender.track?.kind !== "video") continue;
-    const p = sender.getParameters();
-    p.degradationPreference = prefs.hiQuality ? "maintain-resolution" : "balanced";
-    p.encodings = p.encodings?.length ? p.encodings : [{}];
-    p.encodings[0].maxBitrate = Math.round(prefs.bitrateMbps * 1_000_000);
-    sender.setParameters(p).catch(console.error);
+    if (sender.track?.kind === "video") {
+      const p = sender.getParameters();
+      p.degradationPreference = prefs.hiQuality ? "maintain-resolution" : "balanced";
+      p.encodings = p.encodings?.length ? p.encodings : [{}];
+      p.encodings[0].maxBitrate = Math.round(prefs.bitrateMbps * 1_000_000);
+      sender.setParameters(p).catch(console.error);
+    } else if (sender.track?.kind === "audio") {
+      // Áudio de música: Opus estéreo com bitrate alto (o SDP munging negocia
+      // o codec; aqui garantimos o teto de bitrate do encoder).
+      const p = sender.getParameters();
+      p.encodings = p.encodings?.length ? p.encodings : [{}];
+      p.encodings[0].maxBitrate = 192_000;
+      sender.setParameters(p).catch(console.error);
+    }
   }
 }
 
@@ -1307,6 +1436,7 @@ async function startShare(): Promise<void> {
   $("#stop-share-btn").classList.remove("hidden");
   renderParticipants();
   sendData({ kind: "state", sharing: true, from: myId || "me" });
+  document.title = "🔴 LiveBR — transmitindo";
   toast(
     `Transmitindo ${prefs.resolution === "native" ? "em resolução nativa" : prefs.resolution} @ ${prefs.fps}fps, ${prefs.bitrateMbps} Mbps`,
     "ok"
@@ -1357,6 +1487,7 @@ function stopShare(): void {
   removeTile("me");
   $("#share-btn").classList.remove("hidden");
   $("#stop-share-btn").classList.add("hidden");
+  document.title = "LiveBR";
   renderParticipants();
   sendData({ kind: "state", sharing: false, from: myId || "me" });
   toast("Transmissão encerrada");
@@ -1391,6 +1522,25 @@ async function ensureMic(): Promise<void> {
   src.connect(micGain);
   micGain.connect(dest);
   micOutTrack = dest.stream.getAudioTracks()[0];
+
+  // Indicador azul de fala para mim mesmo (analisa o nível do mic).
+  const meterCtx = micCtx;
+  const analyser = meterCtx.createAnalyser();
+  analyser.fftSize = 512;
+  src.connect(analyser);
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+  const micTimer = setInterval(() => {
+    analyser.getByteFrequencyData(buf);
+    let sum = 0;
+    for (const v of buf) sum += v;
+    const level = sum / buf.length / 255;
+    const speaking = micEnabled && level > speechThreshold();
+    const wrap = document.querySelector('#peer-list li[data-peer="me"] .avatar-wrap');
+    wrap?.classList.toggle("speaking", speaking);
+    if (speaking) wrap?.classList.add("speaking");
+  }, 180);
+  // Guarda para limpar depois.
+  (window as any).__micSpeakingTimer = micTimer;
 
   rebuildLocalStream();
   // No modo direto não se adiciona faixa (exigiria renegociação):
@@ -2023,6 +2173,11 @@ document.querySelectorAll("[data-close]").forEach((btn) => {
 $("#chat-send").addEventListener("click", sendChat);
 $("#chat-input").addEventListener("keydown", (e) => {
   if ((e as KeyboardEvent).key === "Enter") sendChat();
+});
+
+// --- Reações flutuantes ---
+document.querySelectorAll("[data-react]").forEach((btn) => {
+  btn.addEventListener("click", () => sendReaction(btn.getAttribute("data-react")!));
 });
 
 // --- Assistir vídeo juntos ---

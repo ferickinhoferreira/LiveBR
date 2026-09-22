@@ -482,6 +482,44 @@ input[type="range"]::-webkit-slider-thumb {
 .watch-tile .watch-bar input[type="range"] { flex: 1; height: 4px; }
 .watch-tile .watch-bar button { background: none; color: #fff; font-size: 14px; }
 
+/* Anel azul de fala (no avatar da lista e no tile) */
+#peer-list li .avatar-wrap .avatar {
+  transition: box-shadow .15s ease, transform .15s ease;
+}
+#peer-list li .avatar-wrap.speaking .avatar {
+  box-shadow: 0 0 0 3px #4c8dff, 0 0 14px rgba(76, 141, 255, .7);
+  transform: scale(1.06);
+}
+.tile.speaking { border-color: #4c8dff !important; box-shadow: 0 0 0 2px rgba(76,141,255,.5) !important; }
+
+/* Reações flutuantes */
+.reaction {
+  position: fixed;
+  bottom: 80px;
+  font-size: 42px;
+  z-index: 250;
+  pointer-events: none;
+  animation: float-up 2.2s ease-out forwards;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,.5));
+}
+@keyframes float-up {
+  0% { opacity: 0; transform: translateY(0) scale(.6); }
+  12% { opacity: 1; transform: translateY(-30px) scale(1.25); }
+  30% { transform: translateY(-70px) scale(1); }
+  100% { opacity: 0; transform: translateY(-260px) scale(1.05); }
+}
+.reaction-bar {
+  display: flex; gap: 4px;
+  position: relative;
+}
+.reaction-bar button {
+  font-size: 20px;
+  padding: 6px;
+  border-radius: 8px;
+  transition: transform .12s ease, background .12s ease;
+}
+.reaction-bar button:hover { background: var(--bg-hover); transform: scale(1.25); }
+
 /* Medidor de microfone */
 .meter-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
 .meter { flex: 1; height: 10px; background: var(--bg-input); border-radius: 5px; overflow: hidden; }
