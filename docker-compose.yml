@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  # Servidor de sinalização LiveBR (Rust)
+  signaling:
+    build: ./server
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  # STUN/TURN para NAT traversal (CGNAT/firewalls restritivos)
+  # Usa TURN REST API: o servidor LiveBR emite credenciais efêmeras via /turn-creds
+  # com o MESMO segredo definido aqui em TURN_STATIC_SECRET.
+  coturn:
+    image: coturn/coturn:latest
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      TURN_STATIC_SECRET: ${TURN_STATIC_SECRET:-livebr-dev-secret}
+    command: >
+      -n
+      --realm=livebr
+      --listening-port=3478
+      --min-port=49160
+      --max-port=49200
+      --use-auth-secret
+      --static-auth-secret=$$TURN_STATIC_SECRET
+      --no-cli

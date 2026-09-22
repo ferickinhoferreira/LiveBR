@@ -1,0 +1,75 @@
+{
+  "name": "livebr-client",
+  "version": "0.2.0",
+  "private": true,
+  "main": "dist/main/main.js",
+  "author": "Erick",
+  "description": "LiveBR - compartilhamento de tela P2P com amigos",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.renderer.json && esbuild src/renderer/app.ts --bundle --outfile=dist/renderer.js --format=iife",
+    "start": "npm run build && electron .",
+    "watch": "esbuild src/renderer/app.ts --bundle --outfile=dist/renderer.js --format=iife --watch",
+    "installer": "node scripts/get-cloudflared.cjs && npm run build && electron-builder --win",
+    "installer:portable": "node scripts/get-cloudflared.cjs && npm run build && electron-builder --win portable",
+    "test:signaling": "node test-signaling.mjs",
+    "test:direct": "electron test-direct-main.js",
+    "test:direct:app": "electron test-direct-app.js",
+    "test:host": "electron test-host-app.js",
+    "test:host:node": "node test-host-node.cjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  },
+  "allowScripts": {
+    "electron": true,
+    "esbuild": true
+  },
+  "build": {
+    "appId": "br.live.livebr",
+    "productName": "LiveBR",
+    "directories": {
+      "output": "installer"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "ferickinhoferreira",
+      "repo": "LiveBR"
+    },
+    "files": [
+      "dist/**/*",
+      "src/renderer/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/cloudflared.exe",
+        "to": "cloudflared.exe"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "signAndEditExecutable": false,
+      "sign": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "LiveBR"
+    },
+    "portable": {
+      "artifactName": "LiveBR-Portable.exe"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "ws": "^8.21.3"
+  }
+}

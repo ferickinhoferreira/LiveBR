@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8" /><title>Teste modo direto</title></head>
+<body>
+<canvas id="cv" width="320" height="180"></canvas>
+<script>
+const log = (m) => console.log("RESULT " + m);
+const fail = (m) => console.log("FAIL " + m);
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function waitIce(pc, timeout = 5000) {
+  return new Promise((resolve) => {
+    if (pc.iceGatheringState === "complete") return resolve();
+    const done = () => { clearTimeout(t); pc.removeEventListener("icegatheringstatechange", check); resolve(); };
+    const check = () => { if (pc.iceGatheringState === "complete") done(); };
+    const t = setTimeout(done, timeout);
+    pc.addEventListener("icegatheringstatechange", check);
+  });
+}
+
+function pack(desc, name) {
+  return btoa(unescape(encodeURIComponent(JSON.stringify({ t: desc.type, sdp: desc.sdp, n: name }))));
+}
+function unpack(txt) {
+  const clean = txt.trim().replace(/\s+/g, "");
+  return JSON.parse(decodeURIComponent(escape(atob(clean))));
+}
+
+function canvasTrack() {
+  const cv = document.getElementById("cv");
+  const ctx = cv.getContext("2d");
+  let i = 0;
+  setInterval(() => {
+    ctx.fillStyle = i % 2 ? "#f00" : "#00f";
+    ctx.fillRect(0, 0, 320, 180);
+    i++;
+  }, 100);
+  return cv.captureStream(10).getVideoTracks()[0];
+}
+
+function audioTrack() {
+  const ctx = new AudioContext();
+  const osc = ctx.createOscillator();
+  const dest = ctx.createMediaStreamDestination();
+  osc.connect(dest);
+  osc.start();
+  return dest.stream.getAudioTracks()[0];
+}
+
+/** Faixas "vazias" (tela preta + silêncio) só para o slot ser negociado como sendonly. */
+function placeholderTracks() {
+  const cv = document.createElement("canvas");
+  cv.width = 16; cv.height = 16;
+  const ctx2d = cv.getContext("2d");
+  ctx2d.fillStyle = "#000";
+  ctx2d.fillRect(0, 0, 16, 16);
+
+  const actx = new AudioContext();
+  const osc = actx.createOscillator();
+  const gain = actx.createGain();
+  gain.gain.value = 0; // silêncio
+  const dest = actx.createMediaStreamDestination();
+  osc.connect(gain);
+  gain.connect(dest);
+  osc.start();
+
+  return {
+    video: cv.captureStream(1).getVideoTracks()[0],
+    audio: dest.stream.getAudioTracks()[0],
+  };
+}
+
+async function waitFor(fn, timeout = 12000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    if (fn()) return true;
+    await wait(150);
+  }
+  return false;
+}
+
+async function main() {
+  const cfg = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+
+  // Slots placeholder: necessários para o guest conseguir ENVIAR já na resposta.
+  const phHost = placeholderTracks();
+  const phGuest = placeholderTracks();
+
+  // ---------- HOST: m-lines via addTrack (sendrecv) ----------
+  const host = new RTCPeerConnection(cfg);
+  const hSendVideo = host.addTrack(phHost.video);
+  const hSendAudio = host.addTrack(phHost.audio);
+  const hSenderVideo = host.getSenders().find((s) => s.track?.kind === "video");
+  const hSenderAudio = host.getSenders().find((s) => s.track?.kind === "audio");
+
+  let hostVideo = false, hostAudio = false;
+  host.addEventListener("track", (e) => {
+    if (e.track.kind === "video") hostVideo = true;
+    if (e.track.kind === "audio") hostAudio = true;
+  });
+
+  await host.setLocalDescription();
+  await waitIce(host);
+  const invite = pack(host.localDescription, "Host");
+  log("convite gerado (" + invite.length + " chars)");
+
+  // ---------- GUEST: gera resposta ----------
+  const guest = new RTCPeerConnection(cfg);
+  const gSendVideo = guest.addTrack(phGuest.video);
+  const gSendAudio = guest.addTrack(phGuest.audio);
+  const gSenderVideo = guest.getSenders().find((s) => s.track?.kind === "video");
+  const gSenderAudio = guest.getSenders().find((s) => s.track?.kind === "audio");
+
+  let guestVideo = false, guestAudio = false;
+  guest.addEventListener("track", (e) => {
+    if (e.track.kind === "video") guestVideo = true;
+    if (e.track.kind === "audio") guestAudio = true;
+  });
+
+  const inv = unpack(invite);
+  await guest.setRemoteDescription({ type: inv.t, sdp: inv.sdp });
+  await guest.setLocalDescription();
+  await waitIce(guest);
+  const answer = pack(guest.localDescription, "Guest");
+  log("resposta gerada (" + answer.length + " chars)");
+
+  // m-lines da resposta (o guest precisa ter slots de envio negociados)
+  const ansSdp = guest.localDescription.sdp;
+  const dirs = [];
+  for (const section of ansSdp.split(/\r\n(?=m=)/)) {
+    const mLine = section.split("\r\n")[0].slice(0, 12);
+    const dir = (section.match(/^a=(sendonly|recvonly|sendrecv|inactive)$/m) || [])[1] || "?";
+    dirs.push(mLine.split(" ")[0] + ":" + dir);
+  }
+  log("direções na resposta: " + dirs.join(" | "));
+
+  const trInfo = guest.getTransceivers().map(
+    (t) => `${t.mid ?? "null"}:${t.direction}/${t.currentDirection}/${t.sender.track?.kind ?? "sem-track"}`
+  );
+  log("transceivers do guest: " + trInfo.join(" | "));
+
+  // ---------- HOST aplica a resposta ----------
+  const ans = unpack(answer);
+  await host.setRemoteDescription({ type: ans.t, sdp: ans.sdp });
+
+  const connected = await waitFor(
+    () => host.connectionState === "connected" && guest.connectionState === "connected"
+  );
+  connected ? log("PASS conexão P2P estabelecida (host=" + host.connectionState + ", guest=" + guest.connectionState + ")")
+            : fail("conexão não estabeleceu (host=" + host.connectionState + ", guest=" + guest.connectionState + ")");
+
+  // ---------- Mídia: cada lado troca o placeholder pelo stream real ----------
+  await hSenderVideo.replaceTrack(canvasTrack());
+  await hSenderAudio.replaceTrack(audioTrack());
+  await gSenderVideo.replaceTrack(canvasTrack());
+  await gSenderAudio.replaceTrack(audioTrack());
+
+  const ok1 = await waitFor(() => guestVideo && guestAudio, 8000);
+  const ok2 = await waitFor(() => hostVideo && hostAudio, 8000);
+  ok1 ? log("PASS guest recebeu vídeo+áudio do host") : fail("guest NÃO recebeu mídia (v=" + guestVideo + " a=" + guestAudio + ")");
+  ok2 ? log("PASS host recebeu vídeo+áudio do guest (bidirecional na MESMA conexão)") : fail("host NÃO recebeu mídia (v=" + hostVideo + " a=" + hostAudio + ")");
+
+  // ---------- replaceTrack(null) para parar transmissão ----------
+  await hSenderVideo.replaceTrack(null);
+  await wait(400);
+  log("PASS replaceTrack(null) executado sem erro (parada de transmissão)");
+
+  // ---------- Data channel "meta" criado ANTES da oferta (como no app) ----------
+  {
+    const ph1 = placeholderTracks();
+    const ph2 = placeholderTracks();
+    const h2 = new RTCPeerConnection(cfg);
+    h2.addTrack(ph1.video);
+    h2.addTrack(ph1.audio);
+    const metaH = h2.createDataChannel("meta");
+
+    let metaAtGuest = null;
+    const gotMeta = new Promise((res) => {
+      h2.setLocalDescription().then(async () => {
+        await waitIce(h2);
+        const g2 = new RTCPeerConnection(cfg);
+        g2.addTrack(ph2.video);
+        g2.addTrack(ph2.audio);
+        g2.ondatachannel = (e) => {
+          if (e.channel.label === "meta") {
+            metaAtGuest = e.channel;
+            e.channel.onmessage = (ev) => {
+              if (JSON.parse(ev.data).sharing === true) res(true);
+            };
+          }
+        };
+        const inv2 = unpack(pack(h2.localDescription, "H2"));
+        await g2.setRemoteDescription({ type: inv2.t, sdp: inv2.sdp });
+        await g2.setLocalDescription();
+        await waitIce(g2);
+        const ans2 = unpack(pack(g2.localDescription, "G2"));
+        await h2.setRemoteDescription({ type: ans2.t, sdp: ans2.sdp });
+        await waitFor(() => metaH.readyState === "open", 8000);
+        metaH.send(JSON.stringify({ sharing: true, name: "Host" }));
+      });
+    });
+
+    const metaOk = await Promise.race([gotMeta, wait(12000).then(() => false)]);
+    metaOk
+      ? log("PASS data channel 'meta' funcionou (host avisa 'sharing:true' ao guest)")
+      : fail("data channel 'meta' NÃO funcionou (estado=" + (metaH.readyState) + ")");
+  }
+
+  console.log(ok1 && ok2 && connected ? "ALL_PASS" : "HAS_FAIL");
+}
+
+main().catch((e) => { fail("exceção: " + e.message); console.log("HAS_FAIL"); });
+</script>
+</body>
+</html>

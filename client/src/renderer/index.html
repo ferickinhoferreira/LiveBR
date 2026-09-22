@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>LiveBR</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- ===================== LOBBY ===================== -->
+  <section id="lobby" class="screen-center">
+    <div class="lobby-card">
+      <div class="logo">
+        <span class="logo-mark">◉</span>
+        <span class="logo-text">LiveBR</span>
+      </div>
+      <p class="lobby-sub">Compartilhe sua tela com os amigos, direto e sem servidor de mídia.</p>
+
+      <div class="tabs lobby-tabs">
+        <button class="tab active" data-login-mode="server">Sala</button>
+        <button class="tab" data-login-mode="direct">Sem servidor</button>
+      </div>
+
+      <label class="field">
+        <span>Seu nome</span>
+        <input id="name-input" placeholder="Como seus amigos te verão" maxlength="24" />
+      </label>
+
+      <!-- --- Modo sala (o app hospeda sozinho) --- -->
+      <div id="server-fields">
+        <button id="create-room-btn" class="btn primary big">🏠 Criar sala</button>
+        <div class="or">ou</div>
+        <label class="field">
+          <span>Entrar com código</span>
+          <input
+            id="join-code-input"
+            class="mono"
+            placeholder="livebr://xxxx.trycloudflare.com/4821"
+          />
+        </label>
+        <button id="join-code-btn" class="btn big">Entrar</button>
+
+        <details class="advanced">
+          <summary>Avançado</summary>
+          <label class="field">
+            <span>Servidor próprio (opcional)</span>
+            <input id="server-input" placeholder="ws://localhost:3000/ws" class="mono small" />
+          </label>
+          <label class="field">
+            <span>TURN (opcional, para NAT restritivo)</span>
+            <input id="turn-input" placeholder="turn:host:3478" class="mono small" />
+          </label>
+        </details>
+      </div>
+
+      <!-- --- Modo direto (sem servidor) --- -->
+      <div id="direct-fields" class="hidden">
+        <p class="hint">
+          Não quer depender de internet/túnel? Um de vocês cria o <strong>convite</strong>,
+          manda por Discord/WhatsApp, o outro devolve a <strong>resposta</strong> e pronto.
+        </p>
+
+        <button id="direct-host-btn" class="btn primary big">Sou eu que convido → Criar convite</button>
+
+        <div id="direct-host-box" class="hidden">
+          <label class="field">
+            <span>1. Envie este convite para seu amigo</span>
+            <textarea id="direct-invite" readonly class="code-area mono"></textarea>
+          </label>
+          <button id="copy-invite" class="btn small-btn">📋 Copiar convite</button>
+
+          <label class="field">
+            <span>2. Cole a resposta que ele te enviar</span>
+            <textarea id="direct-answer-in" class="code-area mono" placeholder="Cole aqui a resposta..."></textarea>
+          </label>
+          <button id="direct-connect-btn" class="btn primary big">Conectar</button>
+        </div>
+
+        <details class="advanced" id="direct-guest-box">
+          <summary>Recebi um convite (sou o convidado)</summary>
+          <label class="field">
+            <span>Cole o convite que você recebeu</span>
+            <textarea id="direct-invite-in" class="code-area mono" placeholder="Cole o convite aqui..."></textarea>
+          </label>
+          <button id="direct-answer-btn" class="btn small-btn">Gerar resposta</button>
+          <label class="field hidden" id="direct-answer-out-box">
+            <span>Envie esta resposta de volta para quem te convidou</span>
+            <textarea id="direct-answer-out" readonly class="code-area mono"></textarea>
+          </label>
+          <button id="copy-answer" class="btn small-btn hidden">📋 Copiar resposta</button>
+        </details>
+      </div>
+
+      <p id="lobby-status" class="status-line"></p>
+    </div>
+  </section>
+
+  <!-- ===================== SALA ===================== -->
+  <section id="room" class="hidden">
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="logo-mark small">◉</span>
+        <div class="room-title">
+          <strong id="room-name">Sala</strong>
+          <button id="share-room-btn" class="code-chip mono" title="Copiar código para convidar">
+            copiar código
+          </button>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span id="conn-pill" class="pill ok">● Conectado</span>
+        <span id="viewers-pill" class="pill">👥 0</span>
+        <button id="settings-btn" class="icon-btn" title="Configurações">⚙️</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <main class="stage">
+        <div id="video-grid"></div>
+        <div id="empty-stage" class="empty-stage">
+          <div class="empty-icon">🖥️</div>
+          <h3>Ninguém está transmitindo ainda</h3>
+          <p>Clique em <strong>Compartilhar tela</strong> para começar.</p>
+        </div>
+      </main>
+
+      <aside class="sidebar">
+        <h4>Participantes <span id="peer-count" class="muted">0</span></h4>
+        <ul id="peer-list"></ul>
+        <div class="sidebar-foot">
+          <div class="stat-row"><span>Latência</span><strong id="stat-rtt">–</strong></div>
+          <div class="stat-row"><span>Bitrate</span><strong id="stat-bitrate">–</strong></div>
+        </div>
+      </aside>
+    </div>
+
+    <footer class="controlbar">
+      <button id="share-btn" class="ctrl primary" title="Compartilhar tela">
+        <span class="ico">📺</span><span class="lbl">Compartilhar tela</span>
+      </button>
+      <button id="stop-share-btn" class="ctrl danger hidden" title="Parar transmissão">
+        <span class="ico">⏹</span><span class="lbl">Parar</span>
+      </button>
+      <button id="mic-btn" class="ctrl" title="Microfone">
+        <span class="ico">🎤</span><span class="lbl">Microfone</span>
+      </button>
+      <button id="deafen-btn" class="ctrl" title="Silenciar todos os áudios">
+        <span class="ico">🎧</span><span class="lbl">Áudio</span>
+      </button>
+      <span class="spacer"></span>
+      <button id="settings-btn2" class="ctrl" title="Configurações">
+        <span class="ico">⚙️</span><span class="lbl">Ajustes</span>
+      </button>
+      <button id="leave-btn" class="ctrl danger" title="Sair da sala">
+        <span class="ico">🚪</span><span class="lbl">Sair</span>
+      </button>
+    </footer>
+  </section>
+
+  <!-- ===================== MODAL: COMPARTILHAR ===================== -->
+  <div id="share-modal" class="modal hidden">
+    <div class="modal-card wide">
+      <header class="modal-head">
+        <h3>Compartilhar tela</h3>
+        <button class="icon-btn close" data-close="share-modal">✕</button>
+      </header>
+
+      <div class="modal-body split">
+        <div class="sources-col">
+          <div class="tabs">
+            <button class="tab active" data-src-type="screen">Telas</button>
+            <button class="tab" data-src-type="window">Janelas</button>
+          </div>
+          <div id="source-list" class="source-list"></div>
+        </div>
+
+        <div class="options-col">
+          <h5>Qualidade da transmissão</h5>
+
+          <label class="field">
+            <span>Resolução</span>
+            <select id="opt-resolution">
+              <option value="480p">480p (leve)</option>
+              <option value="720p">720p HD</option>
+              <option value="1080p" selected>1080p Full HD</option>
+              <option value="1440p">1440p Quad HD</option>
+              <option value="native">Nativa da tela</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Taxa de quadros (FPS)</span>
+            <select id="opt-fps">
+              <option value="15">15 fps (leve)</option>
+              <option value="30" selected>30 fps</option>
+              <option value="60">60 fps (fluido)</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Qualidade (bitrate): <strong id="bitrate-label">4 Mbps</strong></span>
+            <input id="opt-bitrate" type="range" min="1" max="12" step="0.5" value="4" />
+          </label>
+
+          <label class="switch">
+            <input id="opt-system-audio" type="checkbox" checked />
+            <span>Incluir áudio do sistema</span>
+          </label>
+
+          <label class="switch">
+            <input id="opt-mic-capture" type="checkbox" checked />
+            <span>Transmitir meu microfone junto</span>
+          </label>
+
+          <div class="hint" id="share-hint">Escolha uma tela ou janela ao lado.</div>
+          <button id="share-confirm" class="btn primary big" disabled>Iniciar transmissão</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== MODAL: CONFIGURAÇÕES ===================== -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-card">
+      <header class="modal-head">
+        <h3>Ajustes de áudio e vídeo</h3>
+        <button class="icon-btn close" data-close="settings-modal">✕</button>
+      </header>
+      <div class="modal-body">
+        <h5>Microfone</h5>
+
+        <div class="meter-row">
+          <span class="muted">Nível de entrada</span>
+          <div class="meter"><div id="mic-meter-fill" class="meter-fill"></div></div>
+          <span id="mic-meter-val" class="mono small">–</span>
+        </div>
+
+        <label class="field">
+          <span>Sensibilidade de entrada: <strong id="sens-label">50%</strong></span>
+          <input id="opt-sensitivity" type="range" min="5" max="100" step="5" value="50" />
+        </label>
+
+        <label class="switch">
+          <input id="opt-noise" type="checkbox" checked />
+          <span>Supressão de ruído</span>
+        </label>
+        <label class="switch">
+          <input id="opt-echo" type="checkbox" checked />
+          <span>Cancelamento de eco</span>
+        </label>
+        <label class="switch">
+          <input id="opt-agc" type="checkbox" checked />
+          <span>Controle automático de ganho</span>
+        </label>
+
+        <h5>Vídeo</h5>
+        <label class="switch">
+          <input id="opt-hi-quality" type="checkbox" checked />
+          <span>Priorizar resolução (texto nítido)</span>
+        </label>
+
+        <div class="row-buttons">
+          <button id="test-mic-btn" class="btn">Testar microfone</button>
+          <button id="apply-settings" class="btn primary">Salvar e aplicar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="update-banner" class="update-banner hidden">
+    <span id="update-text">Atualização disponível…</span>
+    <button id="update-install-btn" class="btn primary small-btn hidden">
+      🔄 Reiniciar e atualizar
+    </button>
+  </div>
+
+  <div id="toasts" class="toasts"></div>
+  <script src="../../dist/renderer.js"></script>
+</body>
+</html>

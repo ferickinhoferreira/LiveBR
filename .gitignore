@@ -1,0 +1,9 @@
+node_modules/
+installer/
+client/installer.zip
+*.zip
+dist/
+target/
+client/resources/cloudflared.exe
+*.log
+target/
