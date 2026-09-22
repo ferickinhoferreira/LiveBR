@@ -55,6 +55,22 @@ npm start -- --user-data-dir=tmp2
 
 Entre com o mesmo código de sala nas duas e clique em "Compartilhar tela".
 
+## Publicando atualizações (auto-update)
+
+Quem já instalou o LiveBR recebe a nova versão **automaticamente**:
+
+1. Faça as mudanças e commite normalmente.
+2. Defina o token do GitHub: `set GH_TOKEN=ghp_...` (PowerShell: `$env:GH_TOKEN = '...'`)
+3. Rode:
+   ```bash
+   node scripts/release.cjs patch   # 0.2.0 → 0.2.1
+   node scripts/release.cjs minor   # 0.2.0 → 0.3.0
+   node scripts/release.cjs 0.4.2   # versão exata
+   ```
+4. O script: bump de versão → build do instalador → commit+tag+push → cria a release → sobe os artefatos.
+5. Quem já tem o app instalado vê o banner **"Nova versão encontrada"** → baixa sozinho →
+   **"Reiniciar e atualizar"**.
+
 ## Distribuindo para amigos (instalador)
 
 Gere o instalador no seu PC:
