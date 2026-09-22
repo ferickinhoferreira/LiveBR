@@ -470,6 +470,19 @@ input[type="range"]::-webkit-slider-thumb {
 .audio-filter { margin-top: 10px; padding-top: 10px; border-top: 1px solid #26272b; }
 .audio-filter h5 { margin-bottom: 6px; }
 
+.radio-col { display: flex; flex-direction: column; gap: 8px; margin: 6px 0; }
+.radio-row {
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer; padding: 6px 8px;
+  border-radius: 6px;
+  transition: background .12s ease;
+}
+.radio-row:hover { background: var(--bg-hover); }
+.radio-row input { accent-color: var(--accent); width: 15px; height: 15px; flex-shrink: 0; }
+.radio-row span { font-size: 13px; }
+.radio-row em { color: var(--text-muted); font-size: 12px; font-style: normal; }
+#open-mixer { margin-left: 4px; }
+
 .sidebar { display: flex; flex-direction: column; }
 .sidebar-top { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 

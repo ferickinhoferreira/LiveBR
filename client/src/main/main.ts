@@ -45,6 +45,12 @@ let mainWindow: BrowserWindow | null = null;
 // Opções definidas pelo renderer antes de chamar getDisplayMedia.
 let chosenSourceId: string | null = null;
 let includeSystemAudio = true;
+// Modos de áudio (igual ao Go Live do Discord):
+//   'window'   -> captura SÓ o som do aplicativo escolhido (WASAPI Process
+//                 Loopback — ignora Discord/Spotify/navegador)
+//   'loopback' -> captura o som do SISTEMA inteiro
+//   'none'     -> sem áudio
+let audioMode: "loopback" | "window" | "none" = "loopback";
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -66,12 +72,16 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   // Necessário para navigator.mediaDevices.getDisplayMedia() funcionar no Electron.
-  // No Windows, `audio: 'loopback'` captura o áudio do sistema junto com a tela.
   ipcMain.on(
     "display:options",
-    (_e, opts: { sourceId: string; includeSystemAudio: boolean }) => {
+    (_e, opts: {
+      sourceId: string;
+      includeSystemAudio: boolean;
+      audioMode?: "loopback" | "window" | "none";
+    }) => {
       chosenSourceId = opts.sourceId;
       includeSystemAudio = opts.includeSystemAudio;
+      audioMode = opts.audioMode ?? (opts.includeSystemAudio ? "loopback" : "none");
     }
   );
 
@@ -88,9 +98,19 @@ app.whenReady().then(() => {
             callback({} as Electron.Streams);
             return;
           }
+          const isWindow = source.id.startsWith("window:");
+          let audioOpt: Record<string, unknown> = {};
+          if (audioMode !== "none") {
+            // Janela compartilhada pode capturar o som SÓ daquele app
+            // (WASAPI Process Loopback — o Discord e outros apps ficam de fora).
+            audioOpt =
+              audioMode === "window" && isWindow
+                ? { audio: "window" }
+                : { audio: "loopback" };
+          }
           callback({
             video: source,
-            ...(includeSystemAudio ? { audio: "loopback" } : {}),
+            ...audioOpt,
           } as unknown as Electron.Streams);
         } catch {
           callback({} as Electron.Streams);

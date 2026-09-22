@@ -213,12 +213,26 @@
 
           <!-- Filtro de áudio -->
           <div class="audio-filter">
-            <h5>Áudio na transmissão</h5>
-            <p class="hint">
-              O áudio do sistema captura <strong>tudo</strong> que toca no PC
-              (incluindo o Discord). Para excluir um app, abaixe o volume dele no
-              <a id="open-mixer" class="link">Mixer de volume do Windows</a>.
+            <h5>🔊 Áudio da transmissão</h5>
+            <div class="radio-col" id="audio-mode-group">
+              <label class="radio-row">
+                <input type="radio" name="audio-mode" value="app" checked />
+                <span>🎵 Som do aplicativo escolhido <em>(Discord e outros ficam de fora)</em></span>
+              </label>
+              <label class="radio-row">
+                <input type="radio" name="audio-mode" value="system" />
+                <span>🔊 Som do sistema inteiro <em>(jogos + Discord + tudo)</em></span>
+              </label>
+              <label class="radio-row">
+                <input type="radio" name="audio-mode" value="mic" />
+                <span>🎤 Somente seu microfone</span>
+              </label>
+            </div>
+            <p class="hint" id="audio-hint">
+              Compartilhando uma <strong>janela</strong>, o som capturado é apenas daquele
+              aplicativo (Process Loopback, igual ao Go Live do Discord).
             </p>
+            <button id="open-mixer" class="btn small-btn">🎚️ Abrir mixer de volume do Windows</button>
           </div>
         </div>
 

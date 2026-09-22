@@ -10,7 +10,11 @@ interface DisplaySource {
 }
 declare const livebr: {
   getDisplaySources: (type: "screen" | "window" | "all") => Promise<DisplaySource[]>;
-  setDisplayOptions: (sourceId: string, includeSystemAudio: boolean) => void;
+  setDisplayOptions: (
+    sourceId: string,
+    includeSystemAudio: boolean,
+    audioMode?: "loopback" | "window" | "none"
+  ) => void;
   createRoom: () => Promise<{
     ok: boolean;
     code?: string;
@@ -227,24 +231,27 @@ function makeAvatar(name: string, size = 34, useImage = false, profile?: Profile
 
   const photo = profile?.photo ?? "";
   if (photo) {
+    // Foto de perfil da pessoa — SEM texto por cima.
     el.style.backgroundImage = `url(${photo})`;
     el.style.backgroundSize = "cover";
     el.style.backgroundPosition = "center";
     el.classList.add("with-img");
   } else if (useImage) {
+    // Imagem de perfil padrão (guest) — sem texto por cima.
     el.style.backgroundImage = "url(images/guest_profile.png)";
     el.style.backgroundSize = "cover";
     el.style.backgroundPosition = "center";
     el.classList.add("with-img");
   } else {
+    // Sem foto: cor por nome + inicial.
     el.style.background = avatarColor(name);
+    el.textContent = initials(name);
   }
 
   const frame = profile?.frame ?? "none";
   if (frame !== "none") el.classList.add(`frame-${frame}`);
 
   el.style.fontSize = `${Math.round(size * 0.44)}px`;
-  el.textContent = initials(name);
   return el;
 }
 
@@ -1902,13 +1909,33 @@ async function startShare(): Promise<void> {
   readShareInputs();
 
   const sourceId = pendingSourceId;
-  livebr.setDisplayOptions(sourceId, prefs.includeSystemAudio);
+  const isWindowShare = sourceId.startsWith("window:");
+
+  // Modo de áudio (igual ao Go Live):
+  //  - "app"    -> janela: som SÓ do app (Process Loopback); tela: som do sistema
+  //  - "system" -> som do sistema inteiro (só funciona compartilhando a tela)
+  //  - "mic"    -> sem áudio da fonte, só o microfone
+  let audioMode: "loopback" | "window" | "none";
+  const choice = (
+    document.querySelector('input[name="audio-mode"]:checked') as HTMLInputElement
+  ).value;
+
+  if (choice === "mic") {
+    audioMode = "none";
+  } else if (choice === "system") {
+    audioMode = "loopback"; // sistema inteiro (a tela captura tudo)
+  } else {
+    // "app": janela = som isolado do app; tela = som do sistema (não dá para isolar).
+    audioMode = isWindowShare ? "window" : "loopback";
+  }
+
+  livebr.setDisplayOptions(sourceId, audioMode !== "none", audioMode);
   hideModal("share-modal");
 
   try {
     displayStream = await navigator.mediaDevices.getDisplayMedia({
       video: buildVideoConstraints(),
-      audio: prefs.includeSystemAudio,
+      audio: audioMode !== "none",
     });
   } catch (err) {
     toast("Não foi possível capturar a tela.", "err");
@@ -1921,6 +1948,11 @@ async function startShare(): Promise<void> {
     videoTrack.contentHint = "detail";
     if (videoTrack.contentHint !== "detail") videoTrack.contentHint = "text";
     videoTrack.addEventListener("ended", () => stopShare());
+  }
+
+  // Se não veio áudio da fonte (ex.: o app estava silenciado), avisa.
+  if (audioMode !== "none" && displayStream.getAudioTracks().length === 0) {
+    toast("Nenhum áudio capturado desta fonte. Tente compartilhar a janela do app.", "err");
   }
 
   if (prefs.micCapture) await ensureMic();
@@ -1953,8 +1985,15 @@ async function startShare(): Promise<void> {
   sendData({ kind: "state", sharing: true, from: myId || "me" });
   document.title = "🔴 LiveBR — transmitindo";
   playSound("share_screen_on");
+
+  const audioDesc =
+    audioMode === "window"
+      ? "🔊 som apenas do aplicativo"
+      : audioMode === "loopback"
+      ? "🔊 som do sistema"
+      : "🎤 só microfone";
   toast(
-    `Transmitindo ${prefs.resolution === "native" ? "em resolução nativa" : prefs.resolution} @ ${prefs.fps}fps, ${prefs.bitrateMbps} Mbps`,
+    `Transmitindo ${prefs.resolution === "native" ? "nativo" : prefs.resolution} @ ${prefs.fps}fps · ${prefs.bitrateMbps} Mbps · ${audioDesc}`,
     "ok"
   );
 }

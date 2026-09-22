@@ -12,9 +12,12 @@ contextBridge.exposeInMainWorld("livebr", {
   getDisplaySources: (type: "screen" | "window" | "all"): Promise<DisplaySource[]> =>
     ipcRenderer.invoke("display:get-sources", type),
 
-  /** Define a fonte escolhida e se o áudio do sistema deve ser capturado. */
-  setDisplayOptions: (sourceId: string, includeSystemAudio: boolean): void =>
-    ipcRenderer.send("display:options", { sourceId, includeSystemAudio }),
+  /** Define a fonte escolhida e o modo de áudio da transmissão. */
+  setDisplayOptions: (
+    sourceId: string,
+    includeSystemAudio: boolean,
+    audioMode?: "loopback" | "window" | "none"
+  ): void => ipcRenderer.send("display:options", { sourceId, includeSystemAudio, audioMode }),
 
   /** Cria uma sala: o app hospeda a sinalização e abre o acesso público sozinho. */
   createRoom: (): Promise<{
