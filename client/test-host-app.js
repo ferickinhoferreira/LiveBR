@@ -171,6 +171,71 @@ app.whenReady().then(async () => {
       ok = false;
     }
 
+    // --- Perfil + Amizade via data channel ---
+    const guestGotProfile = await waitFor(
+      guest,
+      `document.querySelectorAll('#peer-list li[data-peer] .avatar').length >= 2`,
+      8000,
+      "perfil recebido"
+    );
+    say(guestGotProfile ? "   OK perfil dos peers renderizado" : "   aviso: perfil não apareceu");
+
+    // Envia pedido de amizade do host para o guest (clica no avatar do guest)
+    await evalIn(
+      host,
+      `(() => {
+        const li = [...document.querySelectorAll('#peer-list li')].find(l => l.dataset.peer && l.dataset.peer !== 'me');
+        if (li) li.querySelector('.avatar-wrap').click();
+        return !!li;
+      })()`
+    );
+    await wait(600);
+    const popOpened = await evalIn(host, `!!document.getElementById('profile-pop')`);
+    say(popOpened ? "   OK popover de perfil abriu ao clicar no avatar" : "   FALHOU popover de perfil");
+
+    if (popOpened) {
+      await evalIn(
+        host,
+        `[...document.querySelectorAll('#profile-pop .btn')].find(b => b.textContent.includes('Adicionar'))?.click(); true;`
+      );
+      await wait(1200);
+      const guestSawReq = await evalIn(
+        guest,
+        `!!document.querySelector('.toast.friend-req')`
+      );
+      say(guestSawReq ? "   OK pedido de amizade chegou no guest" : "   FALHOU pedido de amizade");
+
+      if (guestSawReq) {
+        await evalIn(
+          guest,
+          `[...document.querySelectorAll('.toast.friend-req .btn')].find(b => b.textContent.includes('Aceitar'))?.click(); true;`
+        );
+        await wait(1500);
+        const hostFriendCount = await evalIn(
+          host,
+          `JSON.parse(localStorage.getItem('livebrFriends') || '[]').length`
+        );
+        const guestFriendCount = await evalIn(
+          guest,
+          `JSON.parse(localStorage.getItem('livebrFriends') || '[]').length`
+        );
+        // >= 1 porque o localStorage persiste entre execuções do teste.
+        say(
+          hostFriendCount >= 1 && guestFriendCount >= 1
+            ? `   OK amizade registrada nos DOIS lados (host=${hostFriendCount}, guest=${guestFriendCount})`
+            : `   FALHOU amizade (host=${hostFriendCount}, guest=${guestFriendCount})`
+        );
+        if (!(hostFriendCount >= 1 && guestFriendCount >= 1)) ok = false;
+      }
+    }
+
+    // --- Mic automático ao entrar (feedback de áudio presente) ---
+    const micActive = await evalIn(
+      guest,
+      `document.querySelector('#mic-btn') && !document.querySelector('#mic-btn').classList.contains('off')`
+    );
+    say(micActive ? "   OK microfone ligado automaticamente ao entrar" : "   aviso: mic não iniciou (permissão?)");
+
     // --- Coroa do host ---
     const hostCrowns = await evalIn(
       host,

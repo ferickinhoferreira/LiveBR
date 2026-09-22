@@ -27,8 +27,67 @@ declare const livebr: {
 };
 
 // ---------------------------------------------------------------------------
-// Preferências persistidas
+// Perfil do usuário (estilo Discord): nome, foto, banner, bio, moldura, efeito
 // ---------------------------------------------------------------------------
+
+interface Profile {
+  name: string;
+  bio: string;
+  /** dataURL da foto (thumbnail ~128px) */
+  photo: string;
+  /** cor do banner (hex) */
+  banner: string;
+  /** moldura do avatar */
+  frame: "none" | "gold" | "neon" | "rainbow" | "fire" | "glitch";
+  /** efeito no nome */
+  nameEffect: "none" | "gradient" | "glow";
+  /** código de amigo único da instalação */
+  friendCode: string;
+}
+
+const DEFAULT_PROFILE: Profile = {
+  name: "Convidado",
+  bio: "",
+  photo: "",
+  banner: "#5865f2",
+  frame: "none",
+  nameEffect: "none",
+  friendCode: "",
+};
+
+function genFriendCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
+function loadProfile(): Profile {
+  let p: Profile;
+  try {
+    p = { ...DEFAULT_PROFILE, ...JSON.parse(localStorage.getItem("livebrProfile") ?? "{}") };
+  } catch {
+    p = { ...DEFAULT_PROFILE };
+  }
+  if (!p.friendCode) p.friendCode = genFriendCode();
+  return p;
+}
+
+let myProfile: Profile = loadProfile();
+function saveProfile(): void {
+  localStorage.setItem("livebrProfile", JSON.stringify(myProfile));
+}
+
+/** Perfis dos outros, recebidos via data channel. */
+const peerProfiles = new Map<string, Profile>();
+
+function myAvatarHtml(size: number): string {
+  if (myProfile.photo) {
+    return `<img src="${myProfile.photo}" class="avatar-img" style="width:${size}px;height:${size}px" alt=""/>`;
+  }
+  return "";
+}
+
 
 interface Prefs {
   resolution: "480p" | "720p" | "1080p" | "1440p" | "native";
@@ -159,14 +218,20 @@ function avatarColor(name: string): string {
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
 }
 
-/** Avatar circular com inicial e cor própria (para lista de participantes). */
-function makeAvatar(name: string, size = 34, useImage = false): HTMLElement {
+/** Avatar circular: foto de perfil (se houver) ou cor por nome, com moldura. */
+function makeAvatar(name: string, size = 34, useImage = false, profile?: Profile): HTMLElement {
   const el = document.createElement("span");
   el.className = "avatar";
   el.style.width = `${size}px`;
   el.style.height = `${size}px`;
-  if (useImage) {
-    // Imagem de perfil padrão (guest) com a inicial por cima.
+
+  const photo = profile?.photo ?? "";
+  if (photo) {
+    el.style.backgroundImage = `url(${photo})`;
+    el.style.backgroundSize = "cover";
+    el.style.backgroundPosition = "center";
+    el.classList.add("with-img");
+  } else if (useImage) {
     el.style.backgroundImage = "url(images/guest_profile.png)";
     el.style.backgroundSize = "cover";
     el.style.backgroundPosition = "center";
@@ -174,6 +239,10 @@ function makeAvatar(name: string, size = 34, useImage = false): HTMLElement {
   } else {
     el.style.background = avatarColor(name);
   }
+
+  const frame = profile?.frame ?? "none";
+  if (frame !== "none") el.classList.add(`frame-${frame}`);
+
   el.style.fontSize = `${Math.round(size * 0.44)}px`;
   el.textContent = initials(name);
   return el;
@@ -398,26 +467,38 @@ function setupRemoteLevel(peerId: string, stream: MediaStream): void {
     const actx = new AudioContext();
     const src = actx.createMediaStreamSource(stream);
     const node = actx.createAnalyser();
-    node.fftSize = 512;
+    // FFT menor = leitura mais rápida; suavização para o anel não piscar.
+    node.fftSize = 256;
+    node.smoothingTimeConstant = 0.7;
     src.connect(node);
     ctx.analyser = { ctx: actx, node, buf: new Uint8Array(node.frequencyBinCount) };
-    ctx.levelTimer = setInterval(() => {
+
+    let displayed = 0;
+    // ~60fps para animação fluida de verdade (via requestAnimationFrame).
+    const tick = (): void => {
       const a = ctx.analyser;
       if (!a) return;
       a.node.getByteFrequencyData(a.buf as any);
       let sum = 0;
       for (const v of a.buf) sum += v;
-      const level = sum / a.buf.length / 255;
-      const speaking = level > speechThreshold();
-      tiles.get(peerId)?.root.classList.toggle("speaking", speaking);
-      const dot = document.querySelector(`#peer-list li[data-peer="${peerId}"] .dot`);
-      dot?.classList.toggle("off", !speaking);
-      // Anel azul ao redor do avatar quando a pessoa fala.
-      const wrap = document.querySelector(
+      const raw = sum / a.buf.length / 255;
+      // Suavização exponencial: sobe rápido, desce devagar (como o Discord).
+      displayed = raw > displayed ? displayed + (raw - displayed) * 0.55 : displayed * 0.88;
+
+      const speaking = displayed > speechThreshold();
+      const wrap = document.querySelector<HTMLElement>(
         `#peer-list li[data-peer="${peerId}"] .avatar-wrap`
       );
-      wrap?.classList.toggle("speaking", speaking);
-    }, 180);
+      if (wrap) {
+        wrap.classList.toggle("speaking", speaking);
+        wrap.style.setProperty("--speak-level", Math.min(1, displayed * 3).toFixed(2));
+      }
+      const dot = document.querySelector(`#peer-list li[data-peer="${peerId}"] .dot`);
+      dot?.classList.toggle("off", !speaking);
+      tiles.get(peerId)?.root.classList.toggle("speaking", speaking);
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
   } catch {
     /* sem áudio analisável */
   }
@@ -438,10 +519,16 @@ function renderParticipants(): void {
     const li = document.createElement("li");
     li.dataset.peer = id;
 
-    // Avatar colorido (estilo Discord), com coroa no host.
+    // Perfil da pessoa (meu ou recebido via data channel).
+    const prof: Profile | null =
+      isMe ? myProfile : (peerProfiles.get(id) ?? null);
+    const shownName = prof?.name || label;
+
+    // Avatar com foto/moldura — clicar abre o perfil.
     const avatarWrap = document.createElement("span");
     avatarWrap.className = "avatar-wrap";
-    avatarWrap.appendChild(makeAvatar(label));
+    const av = makeAvatar(shownName, 34, false, prof ?? undefined);
+    avatarWrap.appendChild(av);
     if (isHost) {
       const crown = document.createElement("span");
       crown.className = "crown";
@@ -452,10 +539,26 @@ function renderParticipants(): void {
     const dot = document.createElement("span");
     dot.className = `dot${isMe || live ? "" : " off"}`;
     avatarWrap.appendChild(dot);
+    avatarWrap.style.cursor = "pointer";
+    avatarWrap.title = "Ver perfil";
+    avatarWrap.onclick = (e) => {
+      e.stopPropagation();
+      const fallback: Profile = {
+        name: shownName,
+        bio: "",
+        photo: "",
+        banner: "#586b8c",
+        frame: "none",
+        nameEffect: "none",
+        friendCode: "",
+      };
+      openProfilePopover(id, prof ?? fallback, peers.get(id) ?? null);
+    };
 
     const name = document.createElement("span");
     name.className = "name";
-    name.textContent = isMe ? `${label} (você)` : label;
+    if (prof && prof.nameEffect !== "none") name.classList.add(`name-effect-${prof.nameEffect}`);
+    name.textContent = isMe ? `${shownName} (você)` : shownName;
 
     const icons = document.createElement("span");
     icons.className = "icons";
@@ -722,6 +825,17 @@ function handleServerMessage(msg: any): void {
       break;
     case "peer-left": {
       const name = peers.get(msg.peer)?.name ?? "Alguém";
+      // Marca o amigo como offline.
+      const prof = peerProfiles.get(msg.peer);
+      if (prof) {
+        peerProfiles.delete(msg.peer);
+        const idx = friends.findIndex((f) => f.code === prof.friendCode);
+        if (idx >= 0) {
+          friends[idx].onlineNow = false;
+          saveFriends();
+          renderFriends();
+        }
+      }
       peers.get(msg.peer)?.pc.close();
       clearInterval(peers.get(msg.peer)?.levelTimer!);
       peers.get(msg.peer)?.analyser?.ctx.close().catch(() => undefined);
@@ -825,10 +939,21 @@ interface ReactionMsg {
   from: string;
   name: string;
 }
-type DataMsg = ChatMsg | WatchMsg | PeerStateMsg | ReactionMsg;
+type DataMsg =
+  | ChatMsg
+  | WatchMsg
+  | PeerStateMsg
+  | ReactionMsg
+  | ProfileMsg
+  | FriendReqMsg
+  | FriendResMsg;
 
 function wireDataChannel(peerId: string, dc: RTCDataChannel): void {
-  dc.onopen = () => console.log(`dc ${peerId} aberto`);
+  dc.onopen = () => {
+    console.log(`dc ${peerId} aberto`);
+    // Handshake: manda meu perfil assim que o canal abre.
+    sendMyProfile(peerId);
+  };
   dc.onmessage = (e) => {
     let msg: DataMsg;
     try {
@@ -842,6 +967,23 @@ function wireDataChannel(peerId: string, dc: RTCDataChannel): void {
     else if (msg.kind === "reaction") {
       const m = msg as ReactionMsg;
       showReaction(m.emoji, m.name);
+    } else if (msg.kind === "profile") {
+      applyPeerProfile(peerId, (msg as ProfileMsg).profile);
+    } else if (msg.kind === "friendReq") {
+      const m = msg as FriendReqMsg;
+      if (!isFriend(m.code)) showFriendRequest(peerId, m);
+    } else if (msg.kind === "friendAccept") {
+      const m = msg as FriendResMsg;
+      const pending = pendingFriendSends.get(m.code);
+      if (pending) {
+        addFriend({ ...pending, addedAt: Date.now(), onlineNow: true });
+        pendingFriendSends.delete(m.code);
+        toast("Pedido de amizade aceito 🎉", "ok");
+      }
+    } else if (msg.kind === "friendDecline") {
+      const m = msg as FriendResMsg;
+      pendingFriendSends.delete(m.code);
+      toast("Pedido de amizade recusado.", "err");
     }
   };
 }
@@ -854,7 +996,321 @@ function sendData(msg: DataMsg, onlyPeer?: string): void {
   }
 }
 
-// -------------------- Chat --------------------
+// -------------------- Ações de amizade + popover de perfil --------------------
+
+/** Pedidos que EU enviei, aguardando resposta (por código). */
+const pendingFriendSends = new Map<string, Omit<Friend, "addedAt" | "onlineNow">>();
+
+function sendFriendRequest(peerId: string): void {
+  const p = peerProfiles.get(peerId);
+  if (!p) {
+    toast("Ainda não recebi o perfil dessa pessoa. Tente em instantes.", "err");
+    return;
+  }
+  if (isFriend(p.friendCode)) {
+    toast("Vocês já são amigos!", "ok");
+    return;
+  }
+  pendingFriendSends.set(p.friendCode, {
+    code: p.friendCode,
+    name: p.name,
+    photo: p.photo,
+    banner: p.banner,
+    frame: p.frame,
+  });
+  sendData(
+    {
+      kind: "friendReq",
+      code: myProfile.friendCode,
+      name: myProfile.name,
+      photo: myProfile.photo,
+      banner: myProfile.banner,
+      frame: myProfile.frame,
+      from: myId || "me",
+    },
+    peerId
+  );
+  toast(`Pedido de amizade enviado para ${p.name}`, "ok");
+}
+
+function showFriendRequest(peerId: string, req: FriendReqMsg): void {
+  const el = document.createElement("div");
+  el.className = "toast friend-req";
+  el.innerHTML = `<strong>${req.name}</strong> quer ser seu amigo`;
+
+  const accept = document.createElement("button");
+  accept.className = "btn primary small-btn";
+  accept.textContent = "Aceitar";
+  accept.onclick = () => {
+    addFriend({
+      code: req.code,
+      name: req.name,
+      photo: req.photo,
+      banner: req.banner,
+      frame: req.frame,
+      addedAt: Date.now(),
+      onlineNow: true,
+    });
+    sendData({ kind: "friendAccept", code: req.code, from: myId || "me" }, peerId);
+    el.remove();
+  };
+
+  const decline = document.createElement("button");
+  decline.className = "btn small-btn";
+  decline.textContent = "Recusar";
+  decline.onclick = () => {
+    sendData({ kind: "friendDecline", code: req.code, from: myId || "me" }, peerId);
+    el.remove();
+  };
+
+  el.append(accept, decline);
+  $("#toasts").appendChild(el);
+  setTimeout(() => el.remove(), 30000);
+}
+
+/** Popover com o perfil de alguém (abre ao clicar na foto). */
+function openProfilePopover(peerId: string, profile: Profile, peerCtx: PeerCtx | null): void {
+  closeProfilePopover();
+
+  const pop = document.createElement("div");
+  pop.className = "profile-pop";
+  pop.id = "profile-pop";
+
+  const banner = document.createElement("div");
+  banner.className = "pop-banner";
+  banner.style.background = profile.banner || "#5865f2";
+
+  const av = makeAvatar(profile.name, 76, true, profile);
+  av.classList.add("pop-avatar");
+
+  const body = document.createElement("div");
+  body.className = "pop-body";
+
+  const name = document.createElement("div");
+  name.className = "pop-name";
+  name.textContent = profile.name;
+  if (profile.nameEffect !== "none") name.classList.add(`name-effect-${profile.nameEffect}`);
+
+  const code = document.createElement("div");
+  code.className = "muted";
+  code.style.fontSize = "12px";
+  code.textContent = `Código de amigo: ${profile.friendCode || "—"}`;
+
+  const bio = document.createElement("div");
+  bio.className = "pop-bio";
+  bio.textContent = profile.bio || "Sem descrição.";
+
+  body.append(name, code, bio);
+
+  const actions = document.createElement("div");
+  actions.className = "pop-actions";
+
+  const isMe = peerId === "me";
+
+  if (!isMe) {
+    if (peerCtx && !isFriend(profile.friendCode)) {
+      const addBtn = document.createElement("button");
+      addBtn.className = "btn primary small-btn";
+      addBtn.textContent = "➕ Adicionar amigo";
+      addBtn.onclick = () => {
+        sendFriendRequest(peerId);
+        closeProfilePopover();
+      };
+      actions.appendChild(addBtn);
+    } else if (isFriend(profile.friendCode)) {
+      const okBtn = document.createElement("span");
+      okBtn.className = "muted";
+      okBtn.style.cssText = "font-size:12px;padding:8px";
+      okBtn.textContent = "✅ Vocês são amigos";
+      actions.appendChild(okBtn);
+    }
+
+    const focusBtn = document.createElement("button");
+    focusBtn.className = "btn small-btn";
+    focusBtn.textContent = "⤢ Ver em foco";
+    focusBtn.onclick = () => {
+      tiles.get(peerId)?.root.classList.toggle("zoomed");
+      closeProfilePopover();
+    };
+    actions.appendChild(focusBtn);
+  } else {
+    const editBtn = document.createElement("button");
+    editBtn.className = "btn primary small-btn";
+    editBtn.textContent = "✏️ Editar meu perfil";
+    editBtn.onclick = () => {
+      closeProfilePopover();
+      openProfileEditor();
+    };
+    actions.appendChild(editBtn);
+  }
+
+  pop.append(banner, av, body, actions);
+  document.body.appendChild(pop);
+
+  setTimeout(() => {
+    document.addEventListener("click", outsideClose, { once: true });
+  }, 10);
+}
+
+function outsideClose(e: MouseEvent): void {
+  const pop = document.getElementById("profile-pop");
+  if (pop && !pop.contains(e.target as Node)) closeProfilePopover();
+}
+
+function closeProfilePopover(): void {
+  document.getElementById("profile-pop")?.remove();
+}
+
+// -------------------- Perfil via data channel + Amigos --------------------
+
+interface ProfileMsg {
+  kind: "profile";
+  profile: Profile;
+}
+interface FriendReqMsg {
+  kind: "friendReq";
+  code: string;
+  name: string;
+  photo: string;
+  banner: string;
+  frame: Profile["frame"];
+  from: string;
+}
+interface FriendResMsg {
+  kind: "friendAccept" | "friendDecline";
+  code: string;
+  from: string;
+}
+
+interface Friend {
+  code: string;
+  name: string;
+  photo: string;
+  banner: string;
+  frame: Profile["frame"];
+  addedAt: number;
+  onlineNow: boolean;
+}
+
+let friends: Friend[] = (() => {
+  try {
+    return JSON.parse(localStorage.getItem("livebrFriends") ?? "[]");
+  } catch {
+    return [];
+  }
+})();
+
+function saveFriends(): void {
+  localStorage.setItem("livebrFriends", JSON.stringify(friends));
+}
+
+/** Envia meu perfil quando o canal abre (handshake). */
+function sendMyProfile(peerId?: string): void {
+  sendData({ kind: "profile", profile: myProfile }, peerId);
+}
+
+function applyPeerProfile(peerId: string, profile: Profile): void {
+  peerProfiles.set(peerId, profile);
+  const ctx = peers.get(peerId);
+  if (ctx) ctx.name = profile.name || ctx.name;
+
+  // Se essa pessoa é meu amigo, marco como online agora e atualizo os dados.
+  const idx = friends.findIndex((f) => f.code === profile.friendCode);
+  if (idx >= 0) {
+    friends[idx] = {
+      ...friends[idx],
+      name: profile.name,
+      photo: profile.photo,
+      banner: profile.banner,
+      frame: profile.frame,
+      onlineNow: true,
+    };
+    saveFriends();
+    renderFriends();
+  }
+
+  renderParticipants();
+  // Atualiza o tile se existir.
+  const tile = tiles.get(peerId);
+  if (tile) {
+    const av = tile.avatar;
+    av.innerHTML = "";
+    const circle = makeAvatar(profile.name, 84, true, profile);
+    circle.classList.add("big");
+    const name = document.createElement("div");
+    name.textContent = profile.name;
+    name.className = profile.nameEffect !== "none" ? `name-effect-${profile.nameEffect}` : "";
+    av.append(circle, name);
+  }
+}
+
+// -------------------- Amigos --------------------
+
+function isFriend(code: string): boolean {
+  return friends.some((f) => f.code === code);
+}
+
+function addFriend(f: Friend): void {
+  if (isFriend(f.code)) return;
+  friends.push(f);
+  saveFriends();
+  renderFriends();
+  toast(`${f.name} agora é seu amigo 🎉`, "ok");
+}
+
+function renderFriends(): void {
+  const list = $("#friend-list");
+  if (!list) return;
+  list.innerHTML = "";
+
+  const online = friends.filter((f) => f.onlineNow);
+  const offline = friends.filter((f) => !f.onlineNow);
+
+  const addRow = (f: Friend): void => {
+    const li = document.createElement("li");
+    li.className = "friend-item";
+    li.dataset.code = f.code;
+
+    const wrap = document.createElement("span");
+    wrap.className = "avatar-wrap";
+    const av = makeAvatar(f.name, 32, false, f as unknown as Profile);
+    wrap.appendChild(av);
+    const dot = document.createElement("span");
+    dot.className = `dot${f.onlineNow ? "" : " off"}`;
+    wrap.appendChild(dot);
+    if (f.frame !== "none") av.classList.add(`frame-${f.frame}`);
+
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = f.name;
+
+    li.append(wrap, name);
+    li.onclick = () => openProfilePopover(f.code, f as unknown as Profile, null);
+    list.appendChild(li);
+  };
+
+  if (online.length) {
+    const h = document.createElement("div");
+    h.className = "friend-section muted";
+    h.textContent = `Online — ${online.length}`;
+    list.appendChild(h);
+    online.forEach(addRow);
+  }
+  if (offline.length) {
+    const h = document.createElement("div");
+    h.className = "friend-section muted";
+    h.textContent = `Offline — ${offline.length}`;
+    list.appendChild(h);
+    offline.forEach(addRow);
+  }
+  if (friends.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "hint";
+    empty.style.padding = "8px";
+    empty.textContent = "Sem amigos ainda. Entre na sala e clique na foto da pessoa.";
+    list.appendChild(empty);
+  }
+}
 
 function addChatMessage(msg: ChatMsg, mine: boolean): void {
   const box = $("#chat-messages");
@@ -1584,24 +2040,28 @@ async function ensureMic(): Promise<void> {
   micGain.connect(dest);
   micOutTrack = dest.stream.getAudioTracks()[0];
 
-  // Indicador azul de fala para mim mesmo (analisa o nível do mic).
-  const meterCtx = micCtx;
-  const analyser = meterCtx.createAnalyser();
-  analyser.fftSize = 512;
+  // Indicador azul de fala FLUIDO para mim mesmo (mesmo sistema dos peers).
+  const analyser = micCtx.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.smoothingTimeConstant = 0.7;
   src.connect(analyser);
   const buf = new Uint8Array(analyser.frequencyBinCount);
-  const micTimer = setInterval(() => {
-    analyser.getByteFrequencyData(buf);
+  let shown = 0;
+  const tickMe = (): void => {
+    analyser.getByteFrequencyData(buf as any);
     let sum = 0;
     for (const v of buf) sum += v;
-    const level = sum / buf.length / 255;
-    const speaking = micEnabled && level > speechThreshold();
-    const wrap = document.querySelector('#peer-list li[data-peer="me"] .avatar-wrap');
-    wrap?.classList.toggle("speaking", speaking);
-    if (speaking) wrap?.classList.add("speaking");
-  }, 180);
-  // Guarda para limpar depois.
-  (window as any).__micSpeakingTimer = micTimer;
+    const raw = sum / buf.length / 255;
+    shown = raw > shown ? shown + (raw - shown) * 0.55 : shown * 0.88;
+    const speaking = micEnabled && shown > speechThreshold();
+    const wrap = document.querySelector<HTMLElement>('#peer-list li[data-peer="me"] .avatar-wrap');
+    if (wrap) {
+      wrap.classList.toggle("speaking", speaking);
+      wrap.style.setProperty("--speak-level", Math.min(1, shown * 3).toFixed(2));
+    }
+    requestAnimationFrame(tickMe);
+  };
+  requestAnimationFrame(tickMe);
 
   rebuildLocalStream();
   // No modo direto não se adiciona faixa (exigiria renegociação):
@@ -2002,6 +2462,16 @@ function enterRoom(): void {
   }
   startStatsPolling();
   renderParticipants();
+  renderFriends();
+
+  // Microfone liga AUTOMATICAMENTE ao entrar (como no Discord), para a pessoa
+  // já ter feedback visual do anel de fala e não precisar ligar na mão.
+  if (!micRawStream && prefs.micCapture) {
+    void ensureMic().then(() => {
+      rebuildLocalStream();
+      renderParticipants();
+    });
+  }
 }
 
 function leave(): void {
@@ -2044,6 +2514,9 @@ function leave(): void {
 // --- Lobby: criar sala (o app hospeda sozinho) ---
 $("#create-room-btn").addEventListener("click", async () => {
   myName = ($("#name-input") as HTMLInputElement).value.trim() || "Convidado";
+  // Mantém o perfil em sincronia com o nome digitado no lobby.
+  myProfile.name = myName;
+  saveProfile();
   localStorage.setItem("livebrName", myName);
   turnUrl = ($("#turn-input") as HTMLInputElement).value.trim();
   loginMode = "server";
@@ -2081,6 +2554,8 @@ $("#join-code-btn").addEventListener("click", async () => {
     return;
   }
   myName = ($("#name-input") as HTMLInputElement).value.trim() || "Convidado";
+  myProfile.name = myName;
+  saveProfile();
   localStorage.setItem("livebrName", myName);
   turnUrl = ($("#turn-input") as HTMLInputElement).value.trim();
   loginMode = "server";
@@ -2277,13 +2752,136 @@ $("#opt-speaker-device").addEventListener("change", async () => {
   toast("Saída de áudio alterada", "ok");
 });
 
+// --- Abas da sidebar (Pessoas / Amigos) ---
+document.querySelectorAll("[data-ptab]").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll("[data-ptab]").forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    const which = tab.getAttribute("data-ptab");
+    $("#people-panel").classList.toggle("hidden", which !== "people");
+    $("#friends-panel").classList.toggle("hidden", which !== "friends");
+  });
+});
+
+// --- Meu perfil ---
+$("#my-profile-btn").addEventListener("click", openProfileEditor);
+$("#settings-btn").addEventListener("dblclick", openProfileEditor);
+
+$("#prof-photo").addEventListener("change", (e) => {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (file) handlePhotoPick(file);
+});
+$("#prof-photo-remove").addEventListener("click", () => {
+  myProfile.photo = "";
+  saveProfile();
+  renderProfilePreview();
+  renderParticipants();
+  sendMyProfile();
+  toast("Foto removida");
+});
+$("#prof-banner").addEventListener("input", () => {
+  myProfile.banner = ($("#prof-banner") as HTMLInputElement).value;
+  renderProfilePreview();
+});
+$("#prof-name").addEventListener("input", () => {
+  myProfile.name = ($("#prof-name") as HTMLInputElement).value;
+  renderProfilePreview();
+});
+$("#prof-frame").addEventListener("change", () => {
+  myProfile.frame = ($("#prof-frame") as HTMLSelectElement).value as Profile["frame"];
+  renderProfilePreview();
+});
+$("#prof-effect").addEventListener("change", () => {
+  myProfile.nameEffect = ($("#prof-effect") as HTMLSelectElement)
+    .value as Profile["nameEffect"];
+  renderProfilePreview();
+});
+$("#prof-save").addEventListener("click", () => {
+  myProfile.name = ($("#prof-name") as HTMLInputElement).value.trim() || "Convidado";
+  myProfile.bio = ($("#prof-bio") as HTMLTextAreaElement).value.trim();
+  myName = myProfile.name;
+  saveProfile();
+  sendMyProfile();
+  renderParticipants();
+  renderFriends();
+  hideModal("profile-modal");
+  toast("Perfil salvo", "ok");
+});
+$("#copy-friend-code").addEventListener("click", () => {
+  navigator.clipboard.writeText(myProfile.friendCode).then(
+    () => toast(`Código ${myProfile.friendCode} copiado!`, "ok"),
+    () => toast("Não foi possível copiar.", "err")
+  );
+});
+
 // --- Restaura preferências ---
 ($("#server-input") as HTMLInputElement).value =
   localStorage.getItem("livebrServer") ?? DEFAULT_WS_URL;
 ($("#turn-input") as HTMLInputElement).value = localStorage.getItem("livebrTurn") ?? "";
-($("#name-input") as HTMLInputElement).value = localStorage.getItem("livebrName") ?? "";
+($("#name-input") as HTMLInputElement).value =
+  localStorage.getItem("livebrName") ?? (myProfile.name === "Convidado" ? "" : myProfile.name);
 syncShareInputs();
 syncSettingsInputs();
+
+// -------------------- Editor de perfil --------------------
+
+function openProfileEditor(): void {
+  ($("#prof-name") as HTMLInputElement).value = myProfile.name;
+  ($("#prof-bio") as HTMLTextAreaElement).value = myProfile.bio;
+  ($("#prof-banner") as HTMLInputElement).value = myProfile.banner;
+  ($("#prof-frame") as HTMLSelectElement).value = myProfile.frame;
+  ($("#prof-effect") as HTMLSelectElement).value = myProfile.nameEffect;
+  $("#prof-code").textContent = myProfile.friendCode;
+  renderProfilePreview();
+  showModal("profile-modal");
+}
+
+function renderProfilePreview(): void {
+  const preview = $("#prof-preview-avatar");
+  preview.innerHTML = "";
+  const av = makeAvatar(myProfile.name, 84, true, myProfile);
+  preview.appendChild(av);
+  const nm = $("#prof-preview-name");
+  nm.textContent = myProfile.name;
+  nm.className =
+    myProfile.nameEffect !== "none" ? `name-effect-${myProfile.nameEffect}` : "";
+  $("#prof-preview-banner").style.background = myProfile.banner;
+}
+
+/** Reduz a imagem escolhida para um thumbnail quadrado e salva. */
+function handlePhotoPick(file: File): void {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const size = 128;
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d")!;
+      const min = Math.min(img.width, img.height);
+      ctx.drawImage(
+        img,
+        (img.width - min) / 2,
+        (img.height - min) / 2,
+        min,
+        min,
+        0,
+        0,
+        size,
+        size
+      );
+      myProfile.photo = canvas.toDataURL("image/jpeg", 0.8);
+      saveProfile();
+      renderProfilePreview();
+      renderParticipants();
+      sendMyProfile();
+      toast("Foto de perfil atualizada", "ok");
+    };
+    img.src = reader.result as string;
+  };
+  reader.readAsDataURL(file);
+}
 
 // ---------------------------------------------------------------------------
 // AUTO-UPDATE: banner quando sair versão nova no GitHub

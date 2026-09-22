@@ -124,12 +124,25 @@
       </main>
 
       <aside class="sidebar">
-        <div class="sidebar-top">
+        <div class="sidebar-tabs">
+          <button class="stab active" data-ptab="people">👥 Pessoas</button>
+          <button class="stab" data-ptab="friends">⭐ Amigos</button>
+        </div>
+
+        <div id="people-panel" class="sidebar-top">
           <h4>Participantes <span id="peer-count" class="muted">0</span></h4>
           <ul id="peer-list"></ul>
           <div class="sidebar-foot">
             <div class="stat-row"><span>Latência</span><strong id="stat-rtt">–</strong></div>
             <div class="stat-row"><span>Bitrate</span><strong id="stat-bitrate">–</strong></div>
+          </div>
+        </div>
+
+        <div id="friends-panel" class="sidebar-top hidden">
+          <h4>Amigos <span id="friend-count" class="muted">0</span></h4>
+          <ul id="friend-list" class="friend-list"></ul>
+          <div class="sidebar-foot">
+            <button id="my-profile-btn" class="btn small-btn">👤 Meu perfil</button>
           </div>
         </div>
 
@@ -337,6 +350,82 @@
         </label>
         <div class="row-buttons">
           <button id="watch-add" class="btn primary">Adicionar para todos</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== MODAL: MEU PERFIL ===================== -->
+  <div id="profile-modal" class="modal hidden">
+    <div class="modal-card">
+      <header class="modal-head">
+        <h3>Meu perfil</h3>
+        <button class="icon-btn close" data-close="profile-modal">✕</button>
+      </header>
+      <div class="modal-body">
+        <!-- Prévia -->
+        <div class="prof-preview">
+          <div id="prof-preview-banner" class="prof-banner">
+            <div id="prof-preview-avatar" class="prof-avatar-slot"></div>
+          </div>
+          <div id="prof-preview-name" class="prof-name-preview"></div>
+        </div>
+
+        <label class="field">
+          <span>Nome</span>
+          <input id="prof-name" maxlength="24" placeholder="Seu nome" />
+        </label>
+
+        <label class="field">
+          <span>Sobre mim</span>
+          <textarea id="prof-bio" class="code-area" maxlength="200" placeholder="Conte algo sobre você…"></textarea>
+        </label>
+
+        <label class="field">
+          <span>Foto de perfil</span>
+          <input id="prof-photo" type="file" accept="image/*" />
+        </label>
+
+        <div class="row-buttons">
+          <button id="prof-photo-remove" class="btn small-btn">Remover foto</button>
+        </div>
+
+        <label class="field">
+          <span>Cor do banner</span>
+          <input id="prof-banner" type="color" />
+        </label>
+
+        <label class="field">
+          <span>Moldura do avatar</span>
+          <select id="prof-frame">
+            <option value="none">Nenhuma</option>
+            <option value="gold">🏆 Dourada</option>
+            <option value="neon">💠 Neon</option>
+            <option value="rainbow">🌈 Arco-íris</option>
+            <option value="fire">🔥 Fogo</option>
+            <option value="glitch">👾 Glitch</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Efeito no nome</span>
+          <select id="prof-effect">
+            <option value="none">Nenhum</option>
+            <option value="gradient">🌈 Gradiente animado</option>
+            <option value="glow">✨ Brilho</option>
+          </select>
+        </label>
+
+        <div class="field">
+          <span>Código de amigo (compartilhe para te adicionarem)</span>
+          <div class="friend-code-row">
+            <strong id="prof-code" class="mono">——————</strong>
+            <button id="copy-friend-code" class="btn small-btn">📋 Copiar</button>
+          </div>
+        </div>
+
+        <div class="row-buttons">
+          <button id="prof-save" class="btn primary">Salvar perfil</button>
         </div>
       </div>
     </div>

@@ -484,15 +484,24 @@ input[type="range"]::-webkit-slider-thumb {
 .watch-tile .watch-bar input[type="range"] { flex: 1; height: 4px; }
 .watch-tile .watch-bar button { background: none; color: #fff; font-size: 14px; }
 
-/* Anel azul de fala (no avatar da lista e no tile) */
+/* Anel azul de fala FLUIDO — cresce e brilha proporcional à voz */
+#peer-list li .avatar-wrap {
+  --speak-level: 0;
+  border-radius: 50%;
+  transition: transform .12s ease;
+}
 #peer-list li .avatar-wrap .avatar {
-  transition: box-shadow .15s ease, transform .15s ease;
+  transition: box-shadow .06s linear, transform .12s ease;
+}
+#peer-list li .avatar-wrap.speaking {
+  transform: scale(calc(1 + var(--speak-level) * 0.09));
 }
 #peer-list li .avatar-wrap.speaking .avatar {
-  box-shadow: 0 0 0 3px #4c8dff, 0 0 14px rgba(76, 141, 255, .7);
-  transform: scale(1.06);
+  box-shadow:
+    0 0 0 calc(2px + var(--speak-level) * 4px) rgba(76, 141, 255, calc(.55 + var(--speak-level) * .45)),
+    0 0 calc(8px + var(--speak-level) * 22px) rgba(76, 141, 255, calc(.35 + var(--speak-level) * .55));
 }
-.tile.speaking { border-color: #4c8dff !important; box-shadow: 0 0 0 2px rgba(76,141,255,.5) !important; }
+.tile.speaking { border-color: #4c8dff !important; box-shadow: 0 0 0 2px rgba(76,141,255,.55), 0 0 22px rgba(76,141,255,.35) !important; }
 
 /* Reações flutuantes */
 .reaction {
@@ -521,6 +530,147 @@ input[type="range"]::-webkit-slider-thumb {
   transition: transform .12s ease, background .12s ease;
 }
 .reaction-bar button:hover { background: var(--bg-hover); transform: scale(1.25); }
+
+/* ---------------- Molduras de avatar + efeitos de nome ---------------- */
+.frame-gold {
+  box-shadow: 0 0 0 3px #f0b232, 0 0 12px rgba(240,178,50,.6), 0 0 24px rgba(240,178,50,.3) !important;
+}
+.frame-neon {
+  box-shadow: 0 0 0 3px #00d4aa, 0 0 16px rgba(0,212,170,.7) !important;
+  animation: neon-pulse 1.6s ease-in-out infinite;
+}
+@keyframes neon-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px #00d4aa, 0 0 16px rgba(0,212,170,.7); }
+  50% { box-shadow: 0 0 0 3px #4dd0e1, 0 0 28px rgba(0,212,170,.95); }
+}
+.frame-rainbow {
+  border: 3px solid transparent !important;
+  background: linear-gradient(#2b2d31, #2b2d31) padding-box,
+    linear-gradient(135deg, #ff6b6b, #fee75c, #57f287, #4c8dff, #f47fff, #ff6b6b) border-box !important;
+  animation: rainbow-spin 5s linear infinite;
+}
+@keyframes rainbow-spin {
+  0% { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+.frame-fire {
+  box-shadow: 0 0 0 3px #ed4245, 0 0 18px rgba(237,66,69,.65) !important;
+  animation: fire-flicker .35s ease-in-out infinite alternate;
+}
+@keyframes fire-flicker {
+  from { box-shadow: 0 0 0 3px #ed4245, 0 0 18px rgba(237,66,69,.65); }
+  to { box-shadow: 0 0 0 3px #ff9800, 0 0 26px rgba(255,152,0,.85); }
+}
+.frame-glitch {
+  box-shadow: 0 0 0 3px #f47fff, 0 0 14px rgba(244,127,255,.55) !important;
+  animation: glitch-jitter .8s steps(2) infinite;
+}
+@keyframes glitch-jitter {
+  0%, 100% { transform: translate(0); }
+  25% { transform: translate(1px, -1px); }
+  50% { transform: translate(-1px, 1px); }
+  75% { transform: translate(1px, 1px); }
+}
+
+/* Efeito de nome */
+.name-effect-gradient {
+  background: linear-gradient(90deg, #4c8dff, #f47fff, #57f287);
+  background-size: 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: name-gradient 3s ease infinite;
+}
+@keyframes name-gradient {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+.name-effect-glow {
+  text-shadow: 0 0 8px #4c8dff, 0 0 18px rgba(76,141,255,.65), 0 0 30px rgba(76,141,255,.3);
+}
+
+/* ---------------- Abas da sidebar + Amigos ---------------- */
+.sidebar-tabs {
+  display: flex; gap: 6px; padding: 10px 10px 0;
+}
+.stab {
+  flex: 1; padding: 7px; border-radius: 6px;
+  font-size: 12px; font-weight: 700; color: var(--text-muted);
+  background: var(--bg-input);
+}
+.stab.active { background: var(--bg-hover); color: var(--text); }
+
+.friend-list { list-style: none; flex: 1; overflow-y: auto; padding: 0 8px; }
+.friend-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: 6px; cursor: pointer;
+}
+.friend-item:hover { background: var(--bg-hover); }
+.friend-item .name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.friend-section {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .4px; padding: 10px 10px 4px;
+}
+
+/* ---------------- Perfil ---------------- */
+.prof-preview { margin-bottom: 6px; }
+.prof-banner {
+  height: 92px; border-radius: 10px 10px 0 0;
+  position: relative;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.prof-avatar-slot {
+  position: absolute; bottom: -34px; left: 50%; transform: translateX(-50%);
+  border-radius: 50%;
+  box-shadow: 0 4px 14px rgba(0,0,0,.5);
+}
+.prof-name-preview {
+  text-align: center; font-weight: 800; font-size: 17px;
+  margin-top: 40px;
+}
+
+.friend-code-row { display: flex; align-items: center; gap: 10px; }
+.friend-code-row strong {
+  flex: 1; font-size: 18px; letter-spacing: 3px; color: var(--accent);
+}
+
+/* ---------------- Popover de perfil ---------------- */
+.profile-pop {
+  position: fixed;
+  width: 300px;
+  background: var(--bg-panel);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.65);
+  z-index: 400;
+  top: 120px; right: 40px;
+  overflow: hidden;
+  animation: toast-in .15s ease;
+}
+.pop-banner { height: 74px; }
+.pop-avatar {
+  margin: -38px 0 0 16px;
+  border: 4px solid var(--bg-panel);
+  position: relative;
+  box-shadow: 0 4px 14px rgba(0,0,0,.5);
+}
+.pop-body { padding: 10px 16px 4px; }
+.pop-name { font-size: 18px; font-weight: 800; }
+.pop-bio { font-size: 13px; color: var(--text-muted); margin-top: 6px; line-height: 1.4; }
+.pop-actions {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 16px 16px;
+}
+.pop-actions .btn { width: 100%; }
+
+/* Toasts com botões (pedido de amizade) */
+.toast.friend-req {
+  display: flex; flex-direction: column; gap: 8px;
+  pointer-events: auto;
+  border-left-color: #f0b232;
+}
+.toast.friend-req .btn { padding: 6px 10px; font-size: 12px; }
+
+.avatar.with-img { color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.9); }
 
 /* Qualidade de rede (ping): verde bom / amarelo ok / vermelho ruim */
 .net-good { color: #3ddc84 !important; }
