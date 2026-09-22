@@ -156,6 +156,15 @@ async function main() {
     await uploadAsset(release.id, path.join(installerDir, f));
   }
 
+  // 5b) APK Android
+  const apk = path.join(ROOT, "android", `LiveBR-${version}.apk`);
+  if (fs.existsSync(apk)) {
+    log(`   ↑ ${path.basename(apk)} (${(fs.statSync(apk).size / 1024 / 1024).toFixed(1)} MB)…`);
+    await uploadAsset(release.id, apk);
+  } else {
+    log(`   ⚠ APK não encontrado em ${apk} — release seguiu só com o Windows.`);
+  }
+
   log(`\n🎉 LiveBR ${version} publicada!`);
   log(`   https://github.com/${OWNER}/${REPO}/releases/tag/v${version}`);
   log("   Quem já instalou recebe a atualização na próxima vez que abrir o app.");
